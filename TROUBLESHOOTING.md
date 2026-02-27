@@ -1,325 +1,412 @@
-# VuGen HAR Script Generator — Troubleshooting Guide
+# LRE HAR Script Generator — Troubleshooting Guide
 
 ---
 
-## Bookmarklet Issues
+# SECTION 1 — Bookmarklet Issues (Tool 1)
 
 ---
 
-### ❓ I can't drag the bookmarklet buttons to my Bookmarks Bar
+### ❓ I cannot drag the bookmarklet buttons to my Bookmarks Bar
 
-**Check that your Bookmarks Bar is visible first.**
+**First — make sure the Bookmarks Bar is visible:**
+- **Chrome/Edge:** Press `Ctrl+Shift+B`
+- **Firefox:** Press `Ctrl+Shift+B`
 
-- **Chrome/Edge:** Press `Ctrl+Shift+B` to show it
-- **Firefox:** Press `Ctrl+Shift+B` to show it
-
-If the bar is now visible, try dragging again. If dragging still doesn't work:
-
+If dragging still doesn't work, add them manually:
 1. Right-click the **▶ START Transaction** button in the tool
 2. Select **"Bookmark this link"** (Chrome/Edge) or **"Bookmark This Link"** (Firefox)
-3. In the dialog that appears, choose **Bookmarks Bar** as the folder → click Save
+3. Choose **Bookmarks Bar** as the folder → click Save
 4. Repeat for the **■ END Transaction** button
 
 ---
 
-### ❓ I clicked the bookmarklet button on the VuGen tool page and it just showed an alert
+### ❓ I clicked the START or END bookmark but nothing happened — no prompt appeared at all
 
-**That is intentional.** The buttons on the VuGen-Recorder.html page are for *dragging to your Bookmarks Bar only*. Once you have dragged them to the bar, they appear there permanently and can be clicked during your recording sessions in any other browser tab.
+**Most likely cause: you are on a New Tab page or a browser-internal page.**
+
+Chrome and Edge silently block `javascript:` bookmarklets on any `chrome://` page (including the New Tab page, Settings, etc.). There is no error — the bookmark just does nothing.
+
+**Fix:**
+1. Navigate to your application URL first (e.g. `https://myapp.company.com`)
+2. Open F12 **after** you are on your application page
+3. Now click the bookmark — the name prompt will appear
+
+> ⚠️ You must be on a real `http://` or `https://` page for bookmarklets to work.
 
 ---
 
-### ❓ I clicked the START or END bookmark during recording but nothing visible happened
+### ❓ I clicked the START or END bookmark but nothing visible happened *(after the prompt)*
 
-**That is correct behaviour.** The bookmarklet fires a hidden background request (you stay on your application page). The request is captured silently in the Network tab. You will not see any popup, page change, or error — that is intentional.
+**This is correct behaviour.** The bookmarklet fires a silent background request. You stay on your application page. No popup, no page change, no visible error after you type the name and click OK.
 
-**To verify it worked:** Look in the Network tab. You should see a new row with `START-T01_Name.invalid` (status 0 or failed) — that confirms the marker was recorded.
+**To verify it worked:** Look in the Network tab — you should see a new row with `START-T01_Name.invalid` (status 0 or failed).
 
 ---
 
-### ❓ The bookmarklet prompt appeared but the Network tab shows no marker entry
-
-**Causes and fixes:**
+### ❓ The Network tab shows no marker entry after clicking the bookmark
 
 | Cause | Fix |
 |---|---|
-| Developer Tools was not open when you clicked | Always press F12 and open the Network tab *before* clicking any bookmarklet |
-| You clicked Cancel in the prompt | Click the bookmark again and type a name before clicking OK |
-| Browser blocked the fetch request | Try in Chrome or Edge (most compatible) |
+| You were on the New Tab page (chrome://newtab) | Navigate to your application first, then click the bookmark |
+| Developer Tools was closed when you clicked | Press F12 first, then click the bookmark |
+| You clicked Cancel in the name prompt | Click the bookmark again and type a name before OK |
+| Browser blocked the background request | Try Chrome or Edge instead of Firefox |
 
 ---
 
-### ❓ My organisation's group policy blocks `javascript:` bookmarks
+### ❓ My organisation blocks `javascript:` bookmarks
 
-**Use the Address Bar Method instead.** See the collapsible "Address Bar Method" section at the bottom of the VuGen-Recorder.html welcome page for step-by-step instructions.
-
-In short: type `https://START-T01-Login.invalid` in the address bar and press Enter (error page is expected), then navigate back to your application and continue.
+**Use the Address Bar Method instead:**
+1. Navigate to the start of your transaction in your application
+2. Click the address bar and type: `https://START-T01-Login.invalid` → press Enter
+3. An error page appears — this is expected
+4. Press the **Back button** to return to your application
+5. Perform your transaction steps
+6. Click the address bar again and type: `https://END-T01-Login.invalid` → press Enter
+7. Press **Back** and continue with the next transaction
 
 ---
 
-## Recording Issues
-
----
-
-### ❓ I typed the START/END marker URL but the error page looks different
-
-**This is fine.** The browser error page appearance depends on your browser version and organisation settings. As long as you pressed Enter and the browser attempted to load the URL, the marker was recorded. Check the Network tab — you should see the `.invalid` request listed (even though it failed).
+# SECTION 2 — Recording Issues
 
 ---
 
 ### ❓ My Network tab is empty when I open it
 
-**Cause:** The Network tab only records requests that happen while it is open.
+**Cause:** The Network tab only captures requests made while it is open.
 
 **Fix:**
-1. Close Developer Tools (F12)
-2. Go back to your application's starting page
-3. Press F12 again to open Developer Tools
-4. Click the Network tab
-5. Click 🚫 to clear entries
-6. Now start your recording from the beginning
+1. Press F12 → click the **Network** tab
+2. Click 🚫 to clear any entries
+3. Now start your recording (do NOT reopen/close DevTools)
 
 ---
 
-### ❓ I closed the Developer Tools accidentally during recording
+### ❓ I accidentally closed Developer Tools during recording
 
-**What this means:** All recordings in that session are lost.
-
-**Fix:** You need to start over.
+All captured data is lost. Start over:
 1. Press F12 to reopen Developer Tools
 2. Click 🚫 to clear entries
-3. Begin your recording again from the START marker/bookmarklet
-
----
-
-### ❓ The Network tab shows thousands of requests — is that normal?
-
-**Yes, this is normal.** Modern websites make many requests in the background. Our tool automatically filters out the noise (images, fonts, analytics, ads). When you load your `.har` file into the tool, most of these will be hidden automatically.
-
----
-
-### ❓ I forgot to put markers for one of my transactions
-
-**Option 1 — Re-record:** Start the recording again (usually takes only a few minutes)
-
-**Option 2 — Use Select Mode in the tool:**
-1. Load the HAR file into the tool
-2. Click "☑ Select Mode"
-3. Click each request row that belongs to the missing transaction
-4. Click "+ Create Transaction"
-5. Enter the transaction name
-6. The transaction is created manually
-
----
-
-### ❓ I need to navigate away from the app to place a marker but I don't know the next URL
-
-**Use the bookmarklets.** This is exactly the problem they solve.
-
-When you click the **■ END Transaction** or **▶ START Transaction** bookmark, the browser fires the marker request in the background and you **stay on your current page**. You never need to leave your application or know any URL.
-
-If you are using the address bar method and ended up on an error page: type your application's main URL in the address bar (e.g. `https://yourapp.com`) to get back in, then continue from there.
+3. Begin your recording from the very first START marker
 
 ---
 
 ### ❓ My start/end markers are not being detected by the tool
 
-**Check your marker URL format.** The tool looks for this exact pattern:
+Check the marker URL format. The tool requires exactly this pattern:
 
 ```
-✅  https://START-T01-Login.invalid       ← Correct
-✅  https://END-T01-Login.invalid         ← Correct
-✅  https://START-T01_Login.invalid       ← Also works (underscore)
+✅  https://START-T01-Login.invalid       (hyphen between START and name)
+✅  https://END-T01-Login.invalid
+✅  https://START-T01_Login.invalid       (underscore also works)
 
-❌  http://START-T01-Login.invalid        ← Wrong (must be https)
-❌  https://START T01 Login.invalid       ← Wrong (spaces not allowed)
-❌  https://STARTТ01Login.invalid         ← Wrong (missing hyphen after START)
-❌  https://START-T01-Login.com           ← Wrong (must be .invalid)
+❌  http://START-T01-Login.invalid        (must be https)
+❌  https://START T01 Login.invalid       (no spaces)
+❌  https://STARTT01Login.invalid         (missing hyphen after START)
+❌  https://START-T01-Login.com           (must end in .invalid)
 ```
 
-> **Note:** Bookmarklets automatically format the name correctly — this issue mainly affects the manual address bar method.
-
-**If your markers still aren't detected**, use **Select Mode** to group requests manually (see previous answer).
+> Bookmarklets format the name automatically — this mostly affects the manual address bar method.
 
 ---
 
-### ❓ I accidentally included requests I didn't want
+### ❓ The Network tab shows thousands of requests — is that normal?
 
-**The filters** at the top of the tool handle most noise automatically. If something specific slipped through:
-- The request will be in the generated script
-- You can manually delete it from the downloaded file using any text editor (Notepad, Notepad++)
-- Ask your LRE admin for help editing the script if needed
+Yes — modern websites make many background requests. The tool automatically filters out images, fonts, CSS, analytics, and other noise. When you import the HAR, most of this will be hidden.
 
 ---
 
-## Tool Issues
+### ❓ I forgot to put markers for one of my transactions
+
+**Option 1 — Re-record** (usually takes just a few minutes — quickest option)
+
+**Option 2 — Use Select Mode in Tool 1:**
+1. Load the HAR into `VuGen-Recorder.html`
+2. Click **"☑ Select Mode"** → it turns blue
+3. Click each request row that belongs to the missing transaction
+4. Click **"+ Create Transaction"** → type the name → click Create
 
 ---
 
-### ❓ The tool doesn't open when I double-click the HTML file
+# SECTION 3 — Tool 1 Issues (VuGen-Recorder.html)
 
-**Common causes and fixes:**
+---
+
+### ❓ The tool doesn't open when I double-click it
 
 | Cause | Fix |
 |---|---|
 | No default browser set | Right-click the file → Open with → Chrome or Edge |
-| File is on a network drive with restrictions | Copy the file to your Desktop and open it from there |
-| Browser security blocked it | In Chrome: click the shield icon in address bar → Allow |
+| File is on a restricted network drive | Copy the file to your Desktop and open it from there |
+| Browser security warning | In Chrome: click the shield icon in the address bar → Allow |
 
 ---
 
 ### ❓ I dropped the HAR file but nothing happened
 
-**Check these things:**
-1. Is the file actually a `.har` file? (File name should end in `.har`)
+1. Confirm the file ends in `.har` (not `.zip`, `.txt`, or anything else)
 2. Try the **Browse** button instead of drag-and-drop
-3. Make sure the file is not open in another program
-4. Try in a different browser (Chrome, Edge, or Firefox)
+3. Confirm the file is not open in another program
+4. Try a different browser (Chrome usually works best)
 
 ---
 
-### ❓ The tool loaded the file but shows "No entries"
+### ❓ The tool loaded the file but shows "No entries" or an empty table
 
-**Cause:** The HAR file might be empty, corrupted, or from an unsupported source.
+**Cause:** The HAR file is empty, corrupted, or contains no valid HTTP requests.
 
 **Fix:**
 1. Re-record your session
-2. Make sure you right-clicked in the Network tab (not the Console or Sources tab) when saving
-3. Make sure you selected **"Save all as HAR with content"** (not just "Save as HAR")
+2. In DevTools Network tab, right-click and select **"Save all as HAR with content"** (not just "Save as HAR")
+3. Make sure you clicked inside the **Network tab** (not Console or Sources) when saving
 
 ---
 
-### ❓ All filters are checked but I still see too many requests
+### ❓ All filters are on but there are still too many requests
 
-You can manually exclude domains:
-1. **Uncheck** filters that are hiding too much
-2. Look at the URL column — identify the domain causing the noise
-3. Use **Select Mode** to select only the requests you actually want
-4. Create transactions from those selected requests
+Use the domain panel on the left side — uncheck any domains you do not want included.
 
 ---
 
-### ❓ The generated script is empty / only shows the function wrapper
+### ❓ The generated script is empty or only has the function wrapper
 
-**Cause:** All requests were filtered out.
+**Cause:** All requests were filtered out (nothing passed the filters).
 
 **Fix:**
-1. Try **unchecking** all three filter checkboxes (Static Assets, Analytics/Ads, OPTIONS)
-2. If requests appear now, gradually turn filters back on one at a time
-3. If still empty, the HAR file may not contain actual HTTP requests (rare)
+1. Uncheck **all** filter checkboxes (Static Assets, Analytics/Ads, OPTIONS)
+2. If requests appear, turn filters back on one at a time until you find which one removed your requests
+3. If still empty, the HAR may not contain real HTTP requests — try re-recording
 
 ---
 
-### ❓ My transaction name has a hyphen in it and it changed to underscore
+### ❓ My transaction name changed from a hyphen to an underscore
 
-**This is intentional.** The VuGen C language and DevWeb JavaScript both do not allow hyphens in names. The tool automatically converts hyphens to underscores. The bookmarklet does the same conversion automatically.
+**This is intentional.** VuGen C code and DevWeb JavaScript do not allow hyphens in names. The tool automatically converts them:
 
 ```
 You typed:   T01-Login
-Tool shows:  T01_Login   ← automatically fixed
+Tool shows:  T01_Login   ← automatically corrected
 ```
 
 ---
 
-## Download Issues
+# SECTION 4 — Tool 2 Issues (VuGen-Script-Studio.html)
+
+---
+
+### ❓ The tool shows an error or spins forever after I drop the HAR files
+
+**Check these things:**
+1. Both files must end in `.har`
+2. Both files should contain the same user journey (same URLs in the same order)
+3. The files should not be open in another program
+4. Try one HAR file at a time to see which causes the problem
+
+---
+
+### ❓ What types of dynamic values can Script Studio find?
+
+**Two-HAR mode** detects any value that changes between your two recordings and matches one of these patterns:
+
+| Token type | Examples |
+|---|---|
+| JWT tokens | `eyJhbGciOi...` (Authorization Bearer, API tokens) |
+| UUIDs (any case) | `8f14e45f-ceea-467a-a866-051e1f0b36fe` |
+| MD5 / SHA-256 hashes | 32-char or 64-char hex strings |
+| Long opaque tokens ≥32 chars | OAuth tokens, Base64 session keys |
+| Instance / trace / request IDs | `i-0a1b2c3d4e5f67890`, `req-abc123-def456`, `x-instance-id` values (12–35 alphanumeric chars) |
+| Snowflake / numeric IDs | 15+ digit pure numeric IDs |
+| Compound server keys | `201;437;02/27/2026`, `tok:v1:abc\|xyz` |
+| Framework hidden fields | `_sourcePage`, `__fp`, `__VIEWSTATE`, `__RequestVerificationToken`, `authenticity_token` and many more |
+| CSRF headers | `X-CSRF-Token`, `X-XSRF-Token`, `X-Request-Token` |
+| Session cookies | JSESSIONID, PHPSESSID, ASP.NET_SessionId, and others |
+
+The correlation is also checked in URL path parameters (`;key=value`), query parameters, request headers, JSON body fields, and form-encoded body fields.
+
+---
+
+### ❓ The tool only shows a few correlations — I expected more
+
+**Likely cause:** The two HAR files are from the same browser session (not truly separate sessions). Each recording must be from a fresh login with a different session ID.
+
+**Fix:**
+- Use an Incognito/Private window (`Ctrl+Shift+N`) for the second recording
+- Or log out fully and clear cookies before the second recording
+- Or record on a different computer
+
+---
+
+### ❓ I only have one HAR file — can I still use Script Studio?
+
+Yes. Drop only the first HAR onto the **left drop zone** and leave the right zone empty. The tool will switch to single-HAR mode and detect common patterns:
+- JWT Bearer tokens
+- CSRF headers (`X-CSRF-Token`, `X-Requested-With`)
+- Session cookies in URL paths (`;jsessionid=xxx`)
+- Known hidden form fields (`_sourcePage`, `__fp`, `__VIEWSTATE`, etc.)
+
+Two HARs gives significantly better results for custom application parameters.
+
+---
+
+### ❓ Script Studio says "TODO — manual correlation needed"
+
+Some dynamic values could not be automatically traced to their source. This can happen when:
+- The HAR file was saved without response bodies (check you selected "with content")
+- The value is generated client-side (JavaScript-calculated, not from a server response)
+- The value comes from a redirect chain that wasn't captured
+
+**What to do:** Pass the script to your LRE admin — they can manually add the correlation rule using VuGen's Correlation Studio.
+
+---
+
+### ❓ JSESSIONID is still hardcoded in the script
+
+This means the tool could not find the JSESSIONID in the HAR response headers (common when HAR is recorded with DevTools caching enabled).
+
+**Fix — use two HAR files.** The two-HAR diff will detect JSESSIONID as a changed value and automatically generate a `web_reg_save_param` rule to extract it from the `Set-Cookie` response header.
+
+---
+
+### ❓ The Parameters panel in VuGen shows no parameters
+
+This can happen if the `.usr` file references the wrong parameter file. Make sure you copied **all** files from the ZIP:
+- `ParameterFile.prm` — must be present
+- `collection_data.dat` — must be present
+- Both must be in the same folder as `Action.c`
+
+If VuGen still shows nothing, open `[ScriptName].usr` in Notepad++ and check that it contains:
+```
+ParameterFile=ParameterFile.prm
+```
+(Not `ParameterFile=` with nothing after it)
+
+---
+
+# SECTION 5 — Download Issues
 
 ---
 
 ### ❓ When I click Download, nothing happens
 
-**Try these fixes in order:**
-1. Check your browser's Downloads folder — the file may have downloaded silently
-2. Check if your browser is blocking downloads — look for a blocked download notification near the address bar
+1. Check your browser's Downloads folder — the ZIP may have downloaded silently
+2. Look for a blocked download notification near the browser address bar
 3. Try a different browser (Chrome usually works best for downloads)
-4. Click on the script preview tab first (Action.c), then click Download
 
 ---
 
-### ❓ The downloaded file opens in Notepad but looks garbled
+### ❓ The downloaded ZIP file won't open
 
-**This is normal for `.c` files on Windows.** The file is correct. When you copy it to your LRE project, VuGen/LRE will read it correctly. The content only looks strange in Notepad because of how it handles line endings.
-
-> **Tip:** Use **Notepad++** (free download) if you need to view or edit these files — it handles them much better than regular Notepad.
+| Cause | Fix |
+|---|---|
+| File is corrupted (partial download) | Try downloading again |
+| No ZIP program installed | Right-click → Open with → Windows Explorer (built-in) or 7-Zip |
+| File was renamed to `.zip.crdownload` | Download did not complete — try again |
 
 ---
 
-### ❓ I can't find the downloaded files
+### ❓ I can't find the downloaded file
 
-On Windows, browser downloads typically go to:
+On Windows, browser downloads go to:
 ```
 C:\Users\[YourName]\Downloads\
 ```
 
-Or check:
-- Look at the bottom of your browser window for a download notification
-- Click the **⬇** downloads icon in your browser toolbar
-- Press **Ctrl + J** in Chrome/Edge to open the downloads page
+Or press **Ctrl+J** in Chrome/Edge to open the downloads list.
 
 ---
 
-## Script Issues
+# SECTION 6 — Script Runtime Issues (in VuGen/LRE)
 
 ---
 
-### ❓ LRE says the script has errors when I upload it
+### ❓ VuGen shows "Unresolved symbol" error when replaying
 
-**Most common causes:**
+**Common causes:**
 
-1. **Body text contains special characters** — The request body may contain characters that break the C string format. Ask your LRE admin to review the `Action.c` file.
-
-2. **File encoding issue** — Make sure you're copying the file as-is, not copy-pasting the content manually.
-
-3. **Missing files** — Make sure you copied ALL four Web HTTP/HTML files: `Action.c`, `vuser_init.c`, `vuser_end.c`, and `globals.h`.
-
----
-
-### ❓ The script runs in LRE but transactions show wrong timings
-
-**Cause:** The `lr_think_time(3)` added between transactions may be too short or too long for your application.
-
-**Fix:** Open `Action.c` in Notepad++ and change the number `3` in each `lr_think_time(3)` line to the appropriate think time in seconds for your application.
+| Error text | Meaning and fix |
+|---|---|
+| `Unresolved symbol: web_reg_save_param_cookie` | This function does not exist. The script was generated by an older version of the tool — regenerate using the current version of Script Studio. |
+| `Unresolved symbol: LAST` | The `globals.h` file is missing from your project folder. Make sure you copied all files from the ZIP. |
 
 ---
 
-### ❓ The script only has GET requests — my POST requests are missing
+### ❓ VuGen shows Error -26396 "argument unrecognised" in web_reg_save_param
 
-**Cause:** POST request bodies may have been filtered or the body content was binary/encoded.
+**Cause:** The generated `web_reg_save_param` call has incorrect syntax. This is a bug in an older version of the tool.
 
-**Check:**
-1. Uncheck all filters and reload
-2. Look in the table for your POST request — if it shows as dimmed, it was filtered
-3. If it appears, check if the body shows in the script preview
-
----
-
-### ❓ My session cookies / authentication tokens are hardcoded in the script
-
-**This is expected for the first version of the script.** The recorded script captures the actual values used during recording. For load testing with multiple users, these need to be parameterised.
-
-**Next step:** Ask your LRE admin to help you:
-- Replace hardcoded tokens with parameters using `web_reg_save_param` (Web HTTP/HTML)
-- Replace hardcoded tokens with extractors (DevWeb)
+**Fix:** Regenerate the script using the current version of `VuGen-Script-Studio.html`. The correct syntax is:
+```c
+web_reg_save_param("ParamName",
+    "LB=left boundary text",
+    "RB=right boundary text",
+    "Ord=1",
+    LAST);
+```
 
 ---
 
-## Getting More Help
+### ❓ The script runs but all transactions fail with "Parameter not found"
+
+**Cause:** `web_reg_save_param` could not find the expected text in the server response at runtime.
+
+**Common reasons:**
+- The application response changed since you recorded (different HTML structure)
+- The correlation boundaries (LB/RB) are too specific
+- The request that was supposed to return the value is being cached
+
+**What to do:** Ask your LRE admin to check the correlation in VuGen's Correlation Studio.
+
+---
+
+### ❓ The script runs but all virtual users use the same credentials
+
+**Cause:** The `collection_data.dat` file only has one row of data.
+
+**Fix:** Open `collection_data.dat` in Notepad++ and add one row per virtual user:
+```
+"Username","Password"
+"user1","pass1"
+"user2","pass2"
+"user3","pass3"
+```
+
+---
+
+### ❓ Think time in the script is wrong
+
+The script adds `lr_think_time(3)` (3 seconds) between transactions by default.
+
+To change it: Open `Action.c` in Notepad++ → find each `lr_think_time(3)` line → change the number to your required think time in seconds.
+
+---
+
+### ❓ The .c file looks garbled when opened in Notepad
+
+This is normal — Notepad doesn't handle the line endings in C files well.
+
+**Use Notepad++** (free download) to view and edit `.c` files. It displays them correctly.
+
+---
+
+# SECTION 7 — Getting More Help
 
 | Who to contact | When |
 |---|---|
-| **LRE Admin Team** | Questions about uploading scripts, project folders, LRE settings |
-| **Team Lead** | Questions about test scenario design, transaction planning |
-| **IT Helpdesk** | Browser issues, file access issues, network restrictions |
+| **LRE Admin Team** | Script uploads, project folders, LRE settings, manual correlation |
+| **Team Lead** | Test scenario design, transaction planning, load model |
+| **IT Helpdesk** | Browser issues, file access restrictions, blocked downloads |
 
 ---
 
 ## Quick Self-Check Before Contacting Support
 
-Before reaching out, please check:
 - [ ] Are the ▶ START and ■ END bookmarks in your Bookmarks Bar?
-- [ ] Was Developer Tools (F12) open for the entire recording?
-- [ ] Did you save as "HAR with content" (not just "HAR")?
-- [ ] Did you download all 5 files (not just Action.c)?
-- [ ] Did you copy ALL downloaded files to the project folder?
+- [ ] Was Developer Tools (F12) open for the **entire** recording?
+- [ ] Did you save as **"HAR with content"** (not just "HAR")?
+- [ ] For Script Studio: did you use two separate browser sessions (not the same)?
+- [ ] Did you copy **ALL** files from the downloaded ZIP to your project folder?
+- [ ] Is the `ParameterFile.prm` file in the same folder as `Action.c`?
 
 ---
 
-*VuGen HAR Script Generator v1.0 — LRE Admin Tool*
+*LRE Admin Tool — Troubleshooting Guide v2.0*

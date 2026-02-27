@@ -217,13 +217,15 @@ https://github.com/nodeca/pako/blob/main/LICENSE
       Show your Bookmarks Bar first: <strong>Ctrl+Shift+B</strong> (Chrome/Edge) or <strong>Ctrl+Shift+B</strong> (Firefox).
       Then drag each coloured button above and drop it onto the bookmarks bar. The buttons will stay there permanently.
     </div>
+    <div class="warn" style="margin-top:10px">⚠️ <strong>Bookmarklets only work on real websites.</strong> They will not respond when clicked on the browser's New Tab page or any <code>chrome://</code> page — Chrome blocks them silently. Always navigate to your application URL first, then click the bookmark.</div>
   </div>
 
   <!-- RECORDING STEPS -->
   <div class="instr">
     <h3>📋 Step 2 — Record Your Application</h3>
     <ol class="steps">
-      <li>Open your browser → press <strong>F12</strong> → click the <strong>Network</strong> tab → click 🚫 to clear existing entries</li>
+      <li><strong>Navigate to your application</strong> in the browser (e.g. <code>https://myapp.company.com</code>) — bookmarklets only work on real <code>http/https</code> pages</li>
+      <li>Press <strong>F12</strong> → click the <strong>Network</strong> tab → click 🚫 to clear existing entries</li>
       <li>Click the <strong style="color:#166534">▶ START Transaction</strong> bookmark → type a name (e.g. <code>T01_Login</code>) → click OK</li>
       <li>Browse your application normally — navigate by clicking buttons and links as you normally would</li>
       <li>When done with that transaction, click the <strong style="color:#991b1b">■ END Transaction</strong> bookmark → type the <em>same</em> name → click OK</li>

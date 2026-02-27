@@ -286,6 +286,11 @@ const DYNAMIC_PATTERNS = {
   hex32:     /^[0-9a-f]{32}$/i,
   hex64:     /^[0-9a-f]{64}$/i,
   longToken: /^[A-Za-z0-9+/=_.\-]{32,}$/,
+  // Mid-length tokens 12–35 chars: instance IDs, request/trace IDs, short session keys
+  // e.g. "i-0a1b2c3d4e5f67890", "req-abc123-def456", "inst_xyz789abc123"
+  midToken:  /^[A-Za-z0-9][A-Za-z0-9_\-]{11,34}$/,
+  // Long numeric IDs: Snowflake IDs, Twitter IDs, GCP instance IDs (15+ digits)
+  numericId: /^\d{15,}$/,
   // Server-generated compound keys: e.g. "201;437;02/27/2026", "abc|def|123", "tok:v1:xyz"
   compound:  /^[A-Za-z0-9\/.:\-]+([;|][A-Za-z0-9\/.:\-]+){1,}$/
 };
@@ -559,6 +564,8 @@ function isDynamic(value){
          DYNAMIC_PATTERNS.hex32.test(v)||
          DYNAMIC_PATTERNS.hex64.test(v)||
          (v.length>=20&&DYNAMIC_PATTERNS.longToken.test(v))||
+         DYNAMIC_PATTERNS.midToken.test(v)||
+         DYNAMIC_PATTERNS.numericId.test(v)||
          DYNAMIC_PATTERNS.compound.test(v);
 }
 
@@ -1447,8 +1454,33 @@ function genMainJS(entries, correlations){
       o+=`        },\n`;
     }
     if(bodyText!==null){
-      if(bodyHasDynamic){
-        // Convert to template literal with dynamic expressions
+      const bodyMime=(e.body&&e.body.mimeType||'').split(';')[0].trim();
+      const isFormBody=bodyMime==='application/x-www-form-urlencoded'&&bodyText.indexOf('=')>=0;
+      if(isFormBody){
+        // Render as object { "key": "value" } — matches VuGen DevWeb output format, easier to read
+        const pairs=bodyText.split('&');
+        o+=`        "body": {\n`;
+        for(const pair of pairs){
+          const eq=pair.indexOf('=');
+          const rawK=eq>=0?pair.substring(0,eq):pair;
+          const rawV=eq>=0?pair.substring(eq+1):'';
+          let k=rawK; try{k=decodeURIComponent(rawK.replace(/\+/g,' '));}catch(ex){}
+          const hasDyn=rawV.includes('\x00DYNSTART_')||rawV.includes('\x00PARAM_');
+          if(hasDyn){
+            // Template literal for dynamic expressions
+            let vExpr=escTpl(rawV);
+            vExpr=vExpr.replace(/\x00DYNSTART_([^]+?)\x00DYNEND/g,'${load.global.$1}');
+            vExpr=vExpr.replace(/\x00PARAM_([^]+?)\x00PARAMEND/g,'${load.params.$1}');
+            o+=`            "${escJs(k)}": \`${vExpr}\`,\n`;
+          } else {
+            // Plain value — URL-decode for readability (SDK sends as-is in object body)
+            let v=rawV; try{v=decodeURIComponent(rawV.replace(/\+/g,' '));}catch(ex){}
+            o+=`            "${escJs(k)}": "${escJs(v)}",\n`;
+          }
+        }
+        o+=`        },\n`;
+      } else if(bodyHasDynamic){
+        // JSON or other body with dynamic expressions — template literal
         let esc1=escTpl(bodyText);
         esc1=esc1.replace(/\x00DYNSTART_([^]+?)\x00DYNEND/g,'${load.global.$1}');
         esc1=esc1.replace(/\x00PARAM_([^]+?)\x00PARAMEND/g,'${load.params.$1}');
@@ -1627,59 +1659,122 @@ function genActionC(entries, correlations){
       o+=`\t\t"Snapshot=${sn}",\n\t\t"Mode=HTML",\n\t\tLAST);\n\n`;
     } else {
       let encType='application/x-www-form-urlencoded';
-      let body='';
+      let rawBodyText='';
       if(e.body){
         encType=(e.body.mimeType||encType).split(';')[0].trim();
-        body=(e.body.text||'').replace(/\\/g,'\\\\').replace(/"/g,'\\"').replace(/\r?\n/g,'\\n').replace(/\t/g,'\\t');
-        // Apply body correlation replacements (JSON and form-urlencoded)
-        const bodyUsages=reqUsages.filter(u=>u.location==='body_json'||u.location==='body_form');
-        for(const u of bodyUsages){
-          const rawVal=u.tokenValue||u.originalValue;
-          const variants=[rawVal, encodeURIComponent(rawVal), decodeURIComponent(rawVal||''), String(rawVal).replace(/ /g,'+')];
-          for(const sv of variants){ if(sv&&body.includes(sv)){ body=body.replace(sv,`{${u.name}}`); break; } }
-        }
-        // Unresolved candidate values — replace with TODO placeholder
-        if(S.candidates&&S.candidates.length>0){
-          const eBase=e.url.split('?')[0];
-          for(const cand of S.candidates){
-            for(const cu of cand.usages){
-              const cuBase=cu.reqUrl?cu.reqUrl.split('?')[0]:'';
-              if(cuBase!==eBase) continue;
-              if(cu.location!=='body_form'&&cu.location!=='body_json') continue;
-              const rawVal=cand.fullValue||cand.value;
-              const variants=[rawVal, encodeURIComponent(rawVal), decodeURIComponent(rawVal||''), String(rawVal).replace(/ /g,'+')];
-              for(const sv of variants){ if(sv&&body.includes(sv)){ body=body.replace(sv,`{${cand.hint}}`); break; } }
+        rawBodyText=e.body.text||'';
+      }
+      const bodyUsages=reqUsages.filter(u=>u.location==='body_json'||u.location==='body_form');
+
+      if(e.method==='POST' && encType==='application/x-www-form-urlencoded' && rawBodyText && rawBodyText.indexOf('=')>=0){
+        // ── web_submit_data with ITEMDATA (standard HTML form POST) ──────────
+        // Parse URL-encoded body into decoded {k,v} pairs — VuGen re-encodes automatically
+        const formFields=rawBodyText.split('&').map(pair=>{
+          const eq=pair.indexOf('=');
+          try{
+            return {
+              k:decodeURIComponent((eq>=0?pair.substring(0,eq):pair).replace(/\+/g,' ')),
+              v:eq>=0?decodeURIComponent(pair.substring(eq+1).replace(/\+/g,' ')):''
+            };
+          }catch{ return {k:eq>=0?pair.substring(0,eq):pair, v:eq>=0?pair.substring(eq+1):''}; }
+        });
+        // Apply substitutions per-field on decoded values
+        const subFields=formFields.map(({k,v})=>{
+          let sv=v;
+          // 1. Correlation substitutions
+          for(const u of bodyUsages){
+            const rv=String(u.tokenValue||u.originalValue||''); if(!rv) continue;
+            let dec; try{dec=decodeURIComponent(rv.replace(/\+/g,' '));}catch{dec=rv;}
+            if(sv.includes(rv))  sv=sv.split(rv).join(`{${u.name}}`);
+            else if(dec&&dec!==rv&&sv.includes(dec)) sv=sv.split(dec).join(`{${u.name}}`);
+          }
+          // 2. Candidate substitutions
+          if(S.candidates&&S.candidates.length>0){
+            for(const cand of S.candidates){
+              for(const cu of cand.usages){
+                if(cu.reqIdx!==idx||cu.location!=='body_form') continue;
+                const rv=String(cand.fullValue||cand.value||''); if(!rv) continue;
+                let dec; try{dec=decodeURIComponent(rv.replace(/\+/g,' '));}catch{dec=rv;}
+                if(sv.includes(rv))  sv=sv.split(rv).join(`{${cand.hint}}`);
+                else if(dec&&dec!==rv&&sv.includes(dec)) sv=sv.split(dec).join(`{${cand.hint}}`);
+              }
+            }
+          }
+          // 3. Parameter substitutions
+          if(S.params&&S.params.length>0){
+            for(const param of S.params){
+              for(const pu of param.usages){
+                if(pu.reqIdx!==idx||pu.location!=='body_form') continue;
+                const rv=String(param.value||''); if(!rv) continue;
+                let dec; try{dec=decodeURIComponent(rv.replace(/\+/g,' '));}catch{dec=rv;}
+                if(sv.includes(rv))  sv=sv.split(rv).join(`{${param.csvKey}}`);
+                else if(dec&&dec!==rv&&sv.includes(dec)) sv=sv.split(dec).join(`{${param.csvKey}}`);
+              }
+            }
+          }
+          return {k:escJs(k), v:escJs(sv)};
+        });
+        o+=`\tweb_submit_data("${n}",\n`;
+        o+=`\t\t"Action=${urlOut}",\n`;
+        o+=`\t\t"Method=POST",\n`;
+        o+=`\t\t"RecContentType=${ct}",\n`;
+        o+=`\t\t"Referer=${ref}",\n`;
+        o+=`\t\t"Snapshot=${sn}",\n`;
+        o+=`\t\t"Mode=HTML",\n`;
+        o+=`\t\tITEMDATA,\n`;
+        for(const {k,v} of subFields) o+=`\t\t"Name=${k}","Value=${v}",ENDITEM,\n`;
+        o+=`\t\tLAST);\n\n`;
+
+      } else {
+        // ── web_custom_request (JSON, XML, multipart, PUT, DELETE, PATCH) ───
+        let body='';
+        if(rawBodyText){
+          body=rawBodyText.replace(/\\/g,'\\\\').replace(/"/g,'\\"').replace(/\r?\n/g,'\\n').replace(/\t/g,'\\t');
+          for(const u of bodyUsages){
+            const rawVal=u.tokenValue||u.originalValue;
+            const variants=[rawVal, encodeURIComponent(rawVal), decodeURIComponent(rawVal||''), String(rawVal).replace(/ /g,'+')];
+            for(const sv of variants){ if(sv&&body.includes(sv)){ body=body.replace(sv,`{${u.name}}`); break; } }
+          }
+          if(S.candidates&&S.candidates.length>0){
+            const eBase=e.url.split('?')[0];
+            for(const cand of S.candidates){
+              for(const cu of cand.usages){
+                const cuBase=cu.reqUrl?cu.reqUrl.split('?')[0]:'';
+                if(cuBase!==eBase) continue;
+                if(cu.location!=='body_form'&&cu.location!=='body_json') continue;
+                const rawVal=cand.fullValue||cand.value;
+                const variants=[rawVal, encodeURIComponent(rawVal), decodeURIComponent(rawVal||''), String(rawVal).replace(/ /g,'+')];
+                for(const sv of variants){ if(sv&&body.includes(sv)){ body=body.replace(sv,`{${cand.hint}}`); break; } }
+              }
+            }
+          }
+          if(S.params&&S.params.length>0){
+            for(const param of S.params){
+              for(const pu of param.usages){
+                if(pu.reqIdx!==idx) continue;
+                if(pu.location!=='body_form'&&pu.location!=='body_json') continue;
+                const rawVal=param.value.replace(/\\/g,'\\\\').replace(/"/g,'\\"').replace(/\r?\n/g,'\\n');
+                const variants=[rawVal, encodeURIComponent(rawVal), decodeURIComponent(rawVal||''), String(rawVal).replace(/ /g,'+')];
+                for(const sv of variants){ if(sv&&body.includes(sv)){ body=body.replace(sv,`{${param.csvKey}}`); break; } }
+              }
             }
           }
         }
-        // Parameter substitution — replace user-entered values with {ParamName}
-        if(S.params&&S.params.length>0){
-          const eBase=e.url.split('?')[0];
-          for(const param of S.params){
-            for(const pu of param.usages){
-              if(pu.reqIdx!==idx) continue;
-              if(pu.location!=='body_form'&&pu.location!=='body_json') continue;
-              const rawVal=param.value.replace(/\\/g,'\\\\').replace(/"/g,'\\"').replace(/\r?\n/g,'\\n');
-              const variants=[rawVal, encodeURIComponent(rawVal), decodeURIComponent(rawVal||''), String(rawVal).replace(/ /g,'+')];
-              for(const sv of variants){ if(sv&&body.includes(sv)){ body=body.replace(sv,`{${param.csvKey}}`); break; } }
-            }
+        o+=`\tweb_custom_request("${n}",\n\t\t"URL=${urlOut}",\n\t\t"Method=${e.method}",\n`;
+        o+=`\t\t"Resource=0",\n\t\t"RecContentType=${ct}",\n`;
+        o+=`\t\t"Referer=${ref}",\n\t\t"Snapshot=${sn}",\n\t\t"Mode=HTML",\n`;
+        o+=`\t\t"EncType=${encType}",\n`;
+        if(body){
+          const CHUNK=200;
+          if(body.length<=CHUNK){ o+=`\t\t"Body=${body}",\n`; }
+          else {
+            o+=`\t\t"Body=${body.substring(0,CHUNK)}"\n`;
+            let i=CHUNK;
+            while(i<body.length){ const c2=body.substring(i,i+CHUNK); i+=CHUNK; o+=`\t\t"${c2}"${i<body.length?'':','}\n`; }
           }
         }
+        o+=`\t\tLAST);\n\n`;
       }
-      o+=`\tweb_custom_request("${n}",\n\t\t"URL=${urlOut}",\n\t\t"Method=${e.method}",\n`;
-      o+=`\t\t"Resource=0",\n\t\t"RecContentType=${ct}",\n`;
-      o+=`\t\t"Referer=${ref}",\n\t\t"Snapshot=${sn}",\n\t\t"Mode=HTML",\n`;
-      o+=`\t\t"EncType=${encType}",\n`;
-      if(body){
-        const CHUNK=200;
-        if(body.length<=CHUNK){ o+=`\t\t"Body=${body}",\n`; }
-        else {
-          o+=`\t\t"Body=${body.substring(0,CHUNK)}"\n`;
-          let i=CHUNK;
-          while(i<body.length){ const c2=body.substring(i,i+CHUNK); i+=CHUNK; o+=`\t\t"${c2}"${i<body.length?'':','}\n`; }
-        }
-      }
-      o+=`\t\tLAST);\n\n`;
     }
   }
 

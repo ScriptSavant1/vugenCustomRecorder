@@ -1,144 +1,202 @@
-# VuGen HAR Script Generator — Quick Reference Card
+# LRE HAR Script Generator — Quick Reference Card
 
 > Print this page and keep it on your desk while recording.
+> **No software to install — just open the HTML files in your browser.**
 
 ---
 
-## One-Time Setup — Add Bookmarklets
+## The Two Tools at a Glance
+
+| Tool | File | When to use |
+|---|---|---|
+| **VuGen-Recorder** | `VuGen-Recorder.html` | Quick script from one HAR recording |
+| **Script Studio** | `VuGen-Script-Studio.html` | Production script with auto-correlation (needs two HAR files) |
+
+---
+
+## TOOL 1 — VuGen-Recorder.html
+
+### One-Time Bookmarklet Setup
 
 ```
 1  Open VuGen-Recorder.html in your browser
-2  Show your Bookmarks Bar:  Ctrl+Shift+B  (Chrome / Edge / Firefox)
+2  Show Bookmarks Bar:  Ctrl+Shift+B  (Chrome / Edge / Firefox)
 3  Drag  ▶ START Transaction  from the green box → onto the Bookmarks Bar
 4  Drag  ■ END Transaction    from the green box → onto the Bookmarks Bar
-Done — bookmarklets stay permanently in your browser
+   Done — stays permanently in your browser
 ```
 
 ---
 
-## Transaction Name Rules
+### Transaction Naming Rules
 
 ```
-✅  T01_Login              ← CORRECT
+✅  T01_Login              ← CORRECT (letter + number + underscore)
 ✅  T02_Product_Search     ← CORRECT
 ✅  T03_Add_To_Cart        ← CORRECT
 
-❌  T01 Login              ← WRONG (no spaces)
-❌  01_Login               ← WRONG (must start with a letter)
-❌  T01-Login              ← WRONG (hyphens not allowed)
-❌  T01_Login!!            ← WRONG (no special characters)
+❌  T01 Login              ← WRONG  (no spaces)
+❌  01_Login               ← WRONG  (must start with a letter)
+❌  T01-Login              ← WRONG  (use underscores, not hyphens)
 ```
 
 ---
 
-## Recording Checklist
+### Recording Checklist
 
 ```
-Before Recording:
-  □  Plan your transaction names (T01, T02, T03...)
+BEFORE STARTING:
+  □  Plan transaction names (T01, T02, T03...)
   □  Open browser → press F12
-  □  Click "Network" tab
+  □  Click the "Network" tab
   □  Click 🚫 to clear existing entries
-  □  Confirm ▶ START and ■ END bookmarks are in your Bookmarks Bar
 
-For EACH Transaction:
-  □  Click  ▶ START Transaction  bookmark → type name → OK
-  □  Browse your application normally (click, fill forms, submit)
-  □  Click  ■ END Transaction    bookmark → type same name → OK
-  □  Immediately click ▶ START for the next transaction
+FOR EACH TRANSACTION:
+  □  Click  ▶ START Transaction  → type name → OK
+  □  Perform the steps in your application (click, fill forms, submit)
+  □  Click  ■ END Transaction    → type same name → OK
+  □  Immediately start next transaction (click ▶ START again)
 
-After All Transactions:
+AFTER ALL TRANSACTIONS:
   □  Network tab → right-click any row
   □  Click "Save all as HAR with content"
-  □  Save the file somewhere you can find it
+  □  Save the file (e.g. MyApp_Recording_1.har)
 ```
 
-> ⚠️ **Keep Developer Tools (F12) open for the ENTIRE recording. Closing it loses all data.**
+> ⚠️ **Keep Developer Tools (F12) open the entire time. Closing it loses all data.**
 
 ---
 
-## What the Bookmarklets Do
+### Generate Script (Tool 1)
 
-| Bookmark | What happens when you click it |
-|---|---|
-| ▶ START Transaction | Asks for a name → silently fires `START-TXX.invalid` in the background → you stay on your page |
-| ■ END Transaction | Asks for a name → silently fires `END-TXX.invalid` in the background → you stay on your page |
-
-> The requests fail (`.invalid` domain doesn't exist) — **that is intentional and expected**.
+```
+1  Open VuGen-Recorder.html
+2  Drag your .har file onto the grey drop area (or click Browse)
+3  Choose format: Web HTTP/HTML  or  DevWeb  or  Both
+4  Review the request table
+5  Click "⬇ Download Script"
+6  Unzip and copy files to your LRE project folder
+```
 
 ---
 
-## Marker URL Examples (for reference / address bar fallback)
+## TOOL 2 — VuGen-Script-Studio.html
 
-| What you want | Type this in address bar |
-|---|---|
-| Start transaction 1 (Login) | `https://START-T01-Login.invalid` |
-| End transaction 1 (Login) | `https://END-T01-Login.invalid` |
-| Start transaction 2 (Search) | `https://START-T02-Search.invalid` |
-| End transaction 2 (Search) | `https://END-T02-Search.invalid` |
+### What You Need
 
-> Use the address bar method only if bookmarklets are blocked by your organisation.
+- **HAR Recording 1** — your first recording (`MyApp_Recording_1.har`)
+- **HAR Recording 2** — a second identical recording in a fresh browser session (`MyApp_Recording_2.har`)
+
+```
+For Recording 2:
+  □  Log out of the application completely (or use Incognito window)
+  □  Open browser → F12 → Network → Clear
+  □  Repeat the EXACT same steps as Recording 1
+  □  Save as  MyApp_Recording_2.har
+```
 
 ---
 
-## Tool — Step by Step
+### Generate Correlated Script (Tool 2)
 
 ```
-1  Open VuGen-Recorder.html in your browser
-2  Drop your .har file onto the grey area (or click Browse)
-3  Review the coloured transaction banners in the table
-4  Click "⬇ Download All Files" at the bottom
-5  Copy the downloaded files to your LRE project folder
+1  Open VuGen-Script-Studio.html
+2  Drop  MyApp_Recording_1.har  onto the LEFT drop zone
+3  Drop  MyApp_Recording_2.har  onto the RIGHT drop zone
+4  Choose format: Web HTTP/HTML  or  DevWeb
+5  Click "Generate Script"
+6  Review the Correlations panel (right side)
+7  Click "⬇ Download ZIP"
+8  Unzip and copy files to your LRE project folder
 ```
+
+> One HAR only? Drop it on the LEFT zone only — Studio still detects common patterns.
 
 ---
 
 ## What Each Downloaded File Is For
 
-| File | Where it goes | Protocol |
-|---|---|---|
-| `Action.c` | Your VuGen project folder | Web HTTP/HTML |
-| `vuser_init.c` | Your VuGen project folder | Web HTTP/HTML |
-| `vuser_end.c` | Your VuGen project folder | Web HTTP/HTML |
-| `globals.h` | Your VuGen project folder | Web HTTP/HTML |
-| `main.js` | Your DevWeb script folder | DevWeb |
+### Web HTTP/HTML Output
+| File | Purpose |
+|---|---|
+| `Action.c` | Main script — all your requests and transactions |
+| `vuser_init.c` | Runs once before the test starts |
+| `vuser_end.c` | Runs once after the test ends |
+| `globals.h` | Required project header |
+| `default.cfg` | Runtime settings |
+| `ParameterFile.prm` | Parameter definitions (username, password, etc.) |
+| `collection_data.dat` | Data rows — one per virtual user iteration |
+
+### DevWeb Output
+| File | Purpose |
+|---|---|
+| `main.js` | Complete script — all requests, correlations, parameters |
+| `parameters.yml` | Parameter definitions |
+| `collection_data.csv` | Data rows — one per virtual user iteration |
 
 ---
 
-## Toolbar Filters
+## Bookmarklet Explained
+
+| Bookmark | What happens when you click it |
+|---|---|
+| ▶ START Transaction | Asks for a name → fires `START-T01_Login.invalid` silently → you stay on page |
+| ■ END Transaction | Asks for a name → fires `END-T01_Login.invalid` silently → you stay on page |
+
+> The requests show as "failed" in the Network tab — **that is intentional and correct**.
+
+---
+
+## Address Bar Fallback (if bookmarklets are blocked)
+
+| What you want | Type in the address bar |
+|---|---|
+| Start transaction 1 | `https://START-T01-Login.invalid` |
+| End transaction 1 | `https://END-T01-Login.invalid` |
+| Start transaction 2 | `https://START-T02-Search.invalid` |
+
+> Press Enter → ignore the error page → press the back button → continue in your app.
+
+---
+
+## Filters (Tool 1 only)
 
 | Checkbox | What it hides |
 |---|---|
-| Static Assets | Images, fonts, CSS, JS files |
-| Analytics/Ads | Google Analytics, Facebook trackers |
-| OPTIONS | Browser pre-flight requests |
+| Static Assets | Images, fonts, CSS, JavaScript files |
+| Analytics/Ads | Google Analytics, Facebook trackers, ad pixels |
+| OPTIONS | Browser pre-flight requests (not needed in script) |
 
-> Uncheck to include something in the script. Script updates instantly.
-
----
-
-## Manual Transaction (forgot bookmarklets/markers?)
-
-```
-1  Click "☑ Select Mode" button → turns blue
-2  Click each request row that belongs to the transaction
-3  Click "+ Create Transaction"
-4  Type transaction name → click Create
-5  Repeat for all transactions
-```
+> Uncheck to include something. The script preview updates instantly.
 
 ---
 
-## Status Code Guide
+## Status Colours in the Request Table
 
 | Colour | Code | Meaning |
 |---|---|---|
-| 🟩 Green | 200–299 | Success — include in script |
-| 🔵 Blue | 300–399 | Redirect — usually fine |
+| 🟩 Green | 200–299 | Success |
+| 🔵 Blue | 300–399 | Redirect |
 | 🟧 Orange | 400–499 | Client error — check if expected |
-| 🟥 Red | 500–599 | Server error — may need investigation |
-| ⬜ Grey | 0 | Failed/blocked — markers show as 0 |
+| 🟥 Red | 500–599 | Server error |
+| ⬜ Grey | 0 | Failed or blocked (markers appear as 0 — correct) |
 
 ---
 
-*VuGen HAR Script Generator v1.0 — LRE Admin Tool*
+## Manual Transactions (forgot bookmarklets?)
+
+```
+TOOL 1:
+  1  Click "☑ Select Mode" → turns blue
+  2  Click each request row you want to include
+  3  Click "+ Create Transaction" → type name → Create
+  Repeat for each transaction
+
+TOOL 2:
+  Not needed — Script Studio detects transactions automatically
+  from the markers already in the HAR file
+```
+
+---
+
+*LRE Admin Tool — Quick Reference v2.0*

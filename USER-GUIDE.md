@@ -1,360 +1,419 @@
-# VuGen HAR Script Generator — User Guide
+# LRE HAR Script Generator — User Guide
 
-> **For:** LRE Users who need to record performance test scripts
-> **Replaces:** VuGen Recorder (which is blocked by antivirus/org policy)
-> **Skill level required:** Basic browser usage — no technical knowledge needed
+> **For:** Anyone who needs to create LoadRunner Enterprise (LRE) performance test scripts
+> **Skill level required:** Basic computer skills — no technical knowledge needed
+> **No installation required** — just open the HTML files in your browser
 
 ---
 
-## What Is This Tool?
+## Overview: Two Tools, One Workflow
 
-This tool helps you create **performance test scripts** for LoadRunner Enterprise (LRE) without needing VuGen's built-in recorder. It works in three simple stages:
+This toolset has two tools. Most users will use both:
 
 ```
-STAGE 1              STAGE 2                    STAGE 3
-─────────            ──────────────────         ──────────────────────
-Record your      →   Import the recording   →   Download ready-to-use
-actions in           into our tool               scripts for LRE
-your browser         and group into              (2 formats generated
-using F12            transactions                automatically)
+┌──────────────────────┐       ┌──────────────────────────────────────────┐
+│                      │       │                                          │
+│  VuGen-Recorder.html │  →→→  │  VuGen-Script-Studio.html               │
+│                      │       │                                          │
+│  RECORD your         │       │  CORRELATE & PARAMETERISE your script    │
+│  actions in the      │       │  (makes it ready for real load tests     │
+│  browser and save    │       │  with multiple concurrent users)         │
+│  as a HAR file       │       │                                          │
+└──────────────────────┘       └──────────────────────────────────────────┘
+     Step 1                              Step 2
 ```
 
-**Output:** Two script files are created automatically:
-- **`Action.c`** — for the Web HTTP/HTML protocol in VuGen/LRE
-- **`main.js`** — for the DevWeb protocol in VuGen/LRE
+**If you just want to explore:** Tool 1 alone generates a working script.
+**If you want a production-quality script:** Use Tool 2 after Tool 1.
 
 ---
 
-## Before You Start — Checklist
+# PART A — TOOL 1: VuGen-Recorder.html
 
-- [ ] You have access to the application you want to test
-- [ ] You have the file: **`VuGen-Recorder.html`** (from your LRE admin team)
-- [ ] You know the names you want to give your transactions (e.g., Login, Search, Checkout)
-- [ ] You are using **Google Chrome**, **Microsoft Edge**, or **Firefox**
+## A1. Before You Start
 
-> **Note:** No installation is required. No admin rights needed. The tool is a single HTML file — just open it in your browser.
+**You will need:**
+- [ ] The file `VuGen-Recorder.html` (from your LRE admin team)
+- [ ] Google Chrome, Microsoft Edge, or Firefox
+- [ ] Access to the application you want to test
+- [ ] A list of the transactions you want to measure (see below)
 
----
+**What is a transaction?**
+A transaction is one logical step your user takes — something you want to measure separately.
 
-## Part 1: Planning Your Transactions
+**Example — Online shopping site:**
 
-Before recording, decide how to split your user journey into **transactions**.
-
-A **transaction** = one logical user action that you want to measure separately.
-
-**Example — An e-commerce test scenario:**
-
-| Transaction Name | What the user does |
+| Transaction Name | User action |
 |---|---|
-| `T01_Homepage` | Open the website homepage |
-| `T02_Login` | Enter username/password and log in |
+| `T01_Homepage` | Open the website |
+| `T02_Login` | Enter credentials and sign in |
 | `T03_Search` | Search for a product |
-| `T04_AddToCart` | Add item to shopping cart |
+| `T04_AddToCart` | Add an item to the cart |
 | `T05_Checkout` | Complete the purchase |
 
-> **Naming tip:** Always use the format `T01_Name`, `T02_Name`, etc.
-> - Use only letters, numbers, and underscores
-> - No spaces allowed
-> - Examples: `T01_Login`, `T02_Product_Search`, `T03_Add_To_Cart`
-
----
-
-## Part 2: One-Time Bookmarklet Setup
-
-The easiest way to mark transactions is with **browser bookmarklets** — two special bookmarks that send a hidden signal to your recording without taking you away from your application page.
-
-**You only need to do this setup once.**
-
-### Step 1 — Show Your Bookmarks Bar
-
-Your browser's Bookmarks Bar is the strip of bookmarks just below the address bar. If it is hidden:
-
-- **Chrome/Edge:** Press `Ctrl+Shift+B`
-- **Firefox:** Press `Ctrl+Shift+B`
-
-The bar will appear with any existing bookmarks.
-
----
-
-### Step 2 — Open the Tool and Drag the Bookmarklets
-
-1. Open **`VuGen-Recorder.html`** in your browser
-2. You will see two coloured buttons in the green **"Set Up Bookmarklets"** box:
-   - A **green "▶ START Transaction"** button
-   - A **red "■ END Transaction"** button
-3. **Drag** each button from the tool onto your Bookmarks Bar
-
+**Transaction naming rules:**
 ```
-   ┌─────────────────────────────────────────────────────────────────┐
-   │  Bookmarks Bar:  [Bookmarks] [Other Sites]                      │
-   │  ↑ Drag the buttons here ↑                                      │
-   ├─────────────────────────────────────────────────────────────────┤
-   │  VuGen HAR Script Generator                                     │
-   │                                                                 │
-   │  🔖 Set Up Bookmarklets                                         │
-   │  ┌────────────────────┐  ┌─────────────────────┐               │
-   │  │ ▶ START Transaction│  │ ■ END Transaction   │               │
-   │  └────────────────────┘  └─────────────────────┘               │
-   │           ↑                       ↑                             │
-   │      Drag this up            Drag this up                       │
-   └─────────────────────────────────────────────────────────────────┘
+✅ Correct:    T01_Login        T02_Search       T03_Add_To_Cart
+❌ Wrong:      T01 Login        (no spaces)
+❌ Wrong:      01_Login         (must start with a letter)
+❌ Wrong:      T01-Login        (no hyphens — use underscores)
+❌ Wrong:      T01_Login!!      (no special characters)
 ```
 
-4. After dragging, both bookmarks will appear in your Bookmarks Bar — they are now ready to use.
+---
 
-> **If the buttons don't drag:** Some browsers require you to right-click each link → **"Bookmark this link"** to add it manually.
+## A2. One-Time Setup — Add the Bookmarklets to Your Browser
+
+> You only need to do this once. After this, the bookmarklets stay in your browser permanently.
+
+**What are bookmarklets?** They are two special bookmarks that silently mark the start and end of each transaction while you record — without taking you away from your application page.
+
+### Step 1 — Show Your Browser's Bookmarks Bar
+
+The Bookmarks Bar is the row of saved links just below the address bar.
+
+- **Chrome or Edge:** Press `Ctrl + Shift + B`
+- **Firefox:** Press `Ctrl + Shift + B`
+
+The bar will appear. If you already have bookmarks, you will see them there.
 
 ---
 
-## Part 3: Recording Your Application
+### Step 2 — Open VuGen-Recorder.html and Drag the Bookmarklets
 
-### Step 3 — Open Developer Tools
-
-1. Open **Google Chrome** or **Microsoft Edge**
-2. Press **`F12`** on your keyboard
-3. Click on the **"Network"** tab
-4. Click the **🚫 (Clear)** button to remove any existing entries
-5. Make sure the **red circle ⏺** (Record button) is active
-
-> **Important:** Keep the Developer Tools panel open for the entire recording. Do not close it.
-
----
-
-### Step 4 — Mark the Start of Your First Transaction
-
-When you are ready to begin recording a transaction:
-
-1. Navigate to the starting point of your transaction in the application
-2. Click the **▶ START Transaction** bookmark in your Bookmarks Bar
-3. A small popup appears — type your transaction name (e.g. `T01_Login`) and click **OK**
+1. Open `VuGen-Recorder.html` in your browser (double-click the file)
+2. You will see a green box at the top labelled **"Set Up Bookmarklets"**
+3. Inside it are two buttons:
+   - A green **▶ START Transaction** button
+   - A red **■ END Transaction** button
+4. **Drag each button** from the page onto your Bookmarks Bar
 
 ```
-   ┌──────────────────────────────────────────┐
-   │  Transaction name (e.g. T01_Login):      │
-   │  ┌──────────────────────────────────┐    │
-   │  │ T01_Login                        │    │
-   │  └──────────────────────────────────┘    │
-   │                    [Cancel]  [OK]         │
-   └──────────────────────────────────────────┘
+   Bookmarks Bar (just below the address bar):
+   ┌───────────────────────────────────────────────────────────────┐
+   │  ▶ START Transaction   ■ END Transaction   [other bookmarks]  │
+   └───────────────────────────────────────────────────────────────┘
+            ↑                       ↑
+       Drag here               Drag here
+       from the green box in the tool
 ```
 
-4. The popup closes and you stay on your application page — the marker is recorded silently in the background
+5. Both bookmarks now appear in your Bookmarks Bar — setup complete.
 
-> **You will not see any visible change on your screen — that is normal.** The bookmarklet fires a silent background request that gets captured in the Network tab.
-
----
-
-### Step 5 — Perform Your Transaction Steps
-
-Now perform all the browser steps that belong to this transaction.
-
-**You can navigate completely naturally:**
-- Click links and buttons in the application
-- Fill in forms and submit them
-- Wait for pages to load
-
-There is no restriction on how you navigate. You do not need to type URLs in the address bar.
+> **If dragging doesn't work:** Right-click each button in the tool → select **"Bookmark this link"** → choose **Bookmarks Bar** as the folder → click Save.
 
 ---
 
-### Step 6 — Mark the End of Your Transaction
+## A3. Recording Your Application
 
-When you have finished all steps for this transaction:
+### Step 3 — Open Developer Tools (F12)
 
-1. Click the **■ END Transaction** bookmark in your Bookmarks Bar
-2. Type the **same transaction name** you used for START (e.g. `T01_Login`) → click **OK**
-3. You stay on your current page — continue directly with the next transaction
+1. Open your browser (Chrome or Edge recommended)
+2. Navigate to your application's starting page
+3. Press **F12** on your keyboard — a panel will open at the bottom or side of the screen
+4. Click the **"Network"** tab inside that panel
+5. Click the **🚫 (Clear)** button to remove any old entries
+6. Confirm the **red record circle ⏺** is active
+
+> **Important:** Keep Developer Tools open for the entire recording. Do not close it.
 
 ---
 
-### Step 7 — Continue to the Next Transaction
+### Step 4 — Record Your Transactions
 
-Immediately after clicking END:
+Repeat these three steps for each transaction:
 
-1. Click **▶ START Transaction** again
-2. Type the next transaction name (e.g. `T02_Search`) → click **OK**
-3. Perform the steps for that transaction
-4. Click **■ END Transaction** → type `T02_Search` → click **OK**
-5. Repeat for all transactions
+**a) Mark the START of the transaction**
+1. Click the **▶ START Transaction** bookmark in your Bookmarks Bar
+2. A small popup appears — type your transaction name (e.g. `T01_Login`) and click **OK**
+3. You stay on your current page — the marker fires silently in the background
 
+**b) Perform the transaction steps**
+- Click links and buttons in your application
+- Fill in forms, submit them, wait for pages to load
+- Use the application exactly as a real user would
+
+**c) Mark the END of the transaction**
+1. Click the **■ END Transaction** bookmark
+2. Type the **same name** you used for START (e.g. `T01_Login`) → click **OK**
+3. Immediately click **▶ START Transaction** for your next transaction
+
+**Example of what you will see in the Network tab:**
 ```
-What this looks like in the Network tab:
-──────────────────────────────────────────────────────────
-  START-T01_Login.invalid          ← Silent marker (failed)
-  GET   /login                200
-  POST  /api/authenticate     200
-  GET   /api/user/profile     200
-  END-T01_Login.invalid            ← Silent marker (failed)
-  START-T02_Search.invalid         ← Silent marker (failed)
-  GET   /search?q=laptop      200
-  GET   /api/products         200
-  END-T02_Search.invalid           ← Silent marker (failed)
-──────────────────────────────────────────────────────────
+  START-T01_Login.invalid     ← Marker (status: failed — this is correct)
+  GET   /login          200
+  POST  /authenticate   200
+  GET   /dashboard      200
+  END-T01_Login.invalid       ← Marker (status: failed — this is correct)
+  START-T02_Search.invalid    ← Marker
+  GET   /search?q=...   200
+  END-T02_Search.invalid      ← Marker
 ```
 
-| ✅ Allowed during recording | ❌ Never do during recording |
-|---|---|
-| Click links and buttons in the app | Close/reopen Developer Tools (F12) |
-| Fill forms and submit them | Refresh the page (F5 / Ctrl+R) |
-| Navigate anywhere by clicking | Use bookmarklets on the VuGen-Recorder.html page itself |
+> The `.invalid` markers show as "failed" in the Network tab — **this is intentional and correct**.
 
 ---
 
-### Step 8 — Export the HAR File
+### Step 5 — Save the HAR File
 
-Once you have completed all your transactions:
+After completing all transactions:
 
-1. In the **Network tab**, right-click on any row in the request list
+1. In the Network tab, **right-click** on any request row
 2. Click **"Save all as HAR with content"**
+3. A Save dialog appears — choose a folder (Desktop or Downloads)
+4. Name the file something meaningful: e.g., `MyApp_Recording_1.har`
+5. Click **Save**
 
-```
-   ┌──────────────────────────────────┐
-   │  Copy link address               │
-   │  Open in new tab                 │
-   │  Clear                           │
-   │  ─────────────────────────────── │
-   │  Save all as HAR with content ← │
-   │  ─────────────────────────────── │
-   │  Block request URL               │
-   └──────────────────────────────────┘
-```
-
-3. A **Save file dialog** appears
-4. Choose a folder you can easily find (e.g., Desktop or Downloads)
-5. Give it a meaningful name: e.g., `MyApp_Recording.har`
-6. Click **Save**
-
-> **Firefox users:** Click the ⬇ download icon in the Network toolbar, then "Save All As HAR"
+> **Firefox users:** Click the download arrow icon (⬇) in the Network tab toolbar → "Save All As HAR"
 
 ---
 
-## Part 4: Using the Script Generator Tool
+## A4. Generating Your Script
 
-### Step 9 — Load Your HAR File
+### Step 6 — Load the HAR File into the Tool
 
-1. Open **`VuGen-Recorder.html`** in your browser
-2. **Drag and drop** your `.har` file onto the grey drop area, or click **"Browse HAR File"** to find it
+1. Open `VuGen-Recorder.html` in your browser
+2. **Drag and drop** your `.har` file onto the grey drop area
+   — OR click the **"Browse HAR File"** button and find the file
+3. A dialog appears asking which script format you want:
 
-The tool will automatically:
-- ✅ Read all the recorded requests
-- ✅ Detect your transaction start/end markers
-- ✅ Filter out noise (images, fonts, analytics trackers)
-- ✅ Generate both script files instantly
+| Format | Choose this if... |
+|---|---|
+| **Web HTTP/HTML** | Your LRE project uses Web HTTP/HTML protocol |
+| **DevWeb** | Your LRE project uses DevWeb protocol |
+| **Both** | You want both formats generated at once |
 
----
+4. Select the format and click **OK**
 
-### Step 10 — Review the Request Table
-
-After loading, you will see a table of all your recorded requests:
-
-```
-┌────────────────────────────────────────────────────────────────┐
-│  Filters: ☑ Static Assets  ☑ Analytics/Ads  ☑ OPTIONS        │
-├────┬────────┬────────────────────────┬────────┬──────┬─────────┤
-│  # │ Method │ URL                    │ Status │ Size │ Time    │
-├────┴────────┴────────────────────────┴────────┴──────┴─────────┤
-│  ▶ START: T01_Login   ← Blue banner marks transaction start   │
-├────┬────────┬────────────────────────┬────────┬──────┬─────────┤
-│  3 │ GET    │ /login                 │  200   │ 12KB │ 1200ms  │
-│  4 │ POST   │ /api/authenticate      │  200   │ 1KB  │  450ms  │
-│  5 │ GET    │ /api/user/profile      │  200   │ 2KB  │  380ms  │
-├────┴────────┴────────────────────────┴────────┴──────┴─────────┤
-│  ■ END: T01_Login     ← Blue banner marks transaction end     │
-└────────────────────────────────────────────────────────────────┘
-```
+The tool will instantly:
+- Detect your transaction markers
+- Filter out noise (images, fonts, analytics trackers)
+- Generate your script(s)
 
 ---
 
-### Step 11 — Download Your Scripts
+### Step 7 — Review and Download
 
-Click **"⬇ Download All Files"** at the bottom of the screen.
+**Review the table:** You will see your requests grouped into colour-coded transaction bands. Check that the groupings look correct.
 
-**Files you will get:**
+**Adjust filters if needed:**
+- The left panel shows domains — uncheck any you do not want in the script
+- The top checkboxes filter static assets, analytics, and pre-flight requests
+- The script preview updates live as you change filters
+
+**Download your script:**
+Click **"⬇ Download Script"** → a ZIP file downloads containing your complete VuGen project.
+
+---
+
+### Step 8 — Copy to Your LRE Project
+
+**Unzip the downloaded file.** It contains:
 
 | File | Protocol | Purpose |
 |---|---|---|
-| `Action.c` | Web HTTP/HTML | Main script with all your requests and transactions |
-| `vuser_init.c` | Web HTTP/HTML | Initialization file |
-| `vuser_end.c` | Web HTTP/HTML | Cleanup file |
+| `Action.c` | Web HTTP/HTML | Main script with all requests and transactions |
+| `vuser_init.c` | Web HTTP/HTML | Initialization (runs once at start) |
+| `vuser_end.c` | Web HTTP/HTML | Cleanup (runs once at end) |
 | `globals.h` | Web HTTP/HTML | Required header file |
-| `main.js` | DevWeb | Complete DevWeb protocol script |
+| `default.cfg` | Web HTTP/HTML | Runtime settings |
+| `ScriptUploadMetadata.xml` | Web HTTP/HTML | Required project metadata |
+| `main.js` | DevWeb | Complete DevWeb script |
+
+Copy all files into your VuGen/LRE project folder. Ask your LRE admin if you are unsure where that is.
 
 ---
 
-### Step 12 — Copy Scripts to Your LRE Project
+# PART B — TOOL 2: VuGen-Script-Studio.html
 
-**For Web HTTP/HTML protocol:**
-1. Go to your VuGen/LRE project folder
-2. Copy `Action.c`, `vuser_init.c`, `vuser_end.c`, and `globals.h` into it
+## Why Use Tool 2?
 
-**For DevWeb protocol:**
-1. Go to your DevWeb script folder
-2. Copy `main.js` into it
+A basic recording captures the exact values that were used during your recording session — for example, your session ID, CSRF token, and hidden form fields. These values change with every new session. If you run the basic script under load, every virtual user will fail because they will all try to use the same session ID from your recording.
 
-> **Ask your LRE admin** if you are unsure where your project folder is located.
+**Tool 2 solves this** by comparing two recordings and automatically detecting every value that changes between sessions. It then generates `web_reg_save_param` rules to extract those values dynamically at runtime.
 
 ---
 
-## Part 5: Filters Explained
+## B1. Record a Second HAR File
 
-The tool automatically removes "noise" from your recording.
+You need to record the **same user journey twice**. Each recording must be a completely separate browser session (log out fully, then log in again as a fresh user).
 
-| Filter | What it removes |
-|---|---|
-| **Static Assets** | Images, fonts, CSS, JavaScript files |
-| **Analytics/Ads** | Google Analytics, DoubleClick, Facebook trackers |
-| **OPTIONS** | Browser pre-flight check requests |
+**Recording 1:** Already done in Part A — this is your `MyApp_Recording_1.har`
 
-**To include something that was filtered out:** Uncheck the relevant filter — the table and scripts update instantly.
+**Recording 2:**
+1. Close your browser completely (or open a fresh Incognito window: `Ctrl+Shift+N`)
+2. Repeat the exact same steps as Recording 1:
+   - Press F12 → Network tab → Clear entries
+   - Click ▶ START for each transaction → do the steps → click ■ END
+   - Save as HAR → name it `MyApp_Recording_2.har`
 
----
-
-## Part 6: If You Forgot to Use Bookmarklets
-
-Don't worry — you can still group requests manually using **Select Mode**.
-
-1. Load your HAR file into the tool
-2. Click the **"☑ Select Mode"** button in the toolbar (it turns blue)
-3. Click on each request row that belongs to your first transaction
-4. Click **"+ Create Transaction"**
-5. Type your transaction name (e.g. `T01_Login`) → click **Create**
-6. Repeat for each transaction
+> **Important:** Perform exactly the same actions in both recordings. The tool compares them step by step.
 
 ---
 
-## Summary — The Complete Workflow
+## B2. Open VuGen-Script-Studio.html
+
+1. Double-click `VuGen-Script-Studio.html` to open it in your browser
+2. You will see the upload area with two drop zones
+
+---
+
+## B3. Load Your HAR Files
+
+**With two HAR files (recommended):**
+1. Drag `MyApp_Recording_1.har` onto the **left drop zone** (labelled "HAR Recording 1")
+2. Drag `MyApp_Recording_2.har` onto the **right drop zone** (labelled "HAR Recording 2")
+3. Click **"Generate Script"**
+
+**With one HAR file only:**
+1. Drag your HAR file onto the **left drop zone** only
+2. Click **"Generate Script"**
+   (The tool will still detect common patterns like JWT tokens, CSRF headers, and session cookies)
+
+---
+
+## B4. What the Tool Does Automatically
+
+While processing, the tool performs several steps automatically:
 
 ```
-┌──────────────────────────────────────────────────────────────────────────┐
-│                                                                          │
-│  ONE-TIME SETUP                                                          │
+1. Match requests    → Pairs up each request in Recording 1 with its
+                       equivalent in Recording 2 (same URL + method)
+
+2. Detect changes    → Finds every value that is different between the
+                       two sessions (session IDs, tokens, form fields)
+
+3. Back-trace source → For each changed value, finds which earlier
+                       response contains it (response body, header, cookie)
+
+4. Generate rules    → Creates web_reg_save_param() extraction rules
+                       and places them in the correct position in the script
+
+5. Parameterise      → Detects common user data fields (username, password,
+                       card number, dates) and replaces them with parameters
+
+6. Build project     → Assembles a complete, ready-to-use VuGen project ZIP
+```
+
+---
+
+## B5. Review the Results
+
+After processing, you will see:
+
+**Script preview tabs:**
+- **Action.c** — Web HTTP/HTML script with all correlations and parameters
+- **main.js** — DevWeb script with all correlations and parameters
+- **ParameterFile.prm** — Parameter file listing all detected data parameters
+- **collection_data.dat** / **collection_data.csv** — Data files with your recorded values
+
+**Correlations panel (right side):** Lists every dynamic value that was detected and correlated. For each one, it shows:
+- The parameter name (e.g. `JSessionId`, `SourcePage`, `AuthToken`)
+- The extraction type (from response body, response header, or cookie)
+- Where it is used in the script
+
+**Parameters panel:** Lists data values that were detected and made into parameters (e.g. `Username`, `Password`, `CardNumber`).
+
+---
+
+## B6. Download the Script
+
+Click **"⬇ Download ZIP"** — a complete VuGen project archive downloads.
+
+**What is inside the ZIP:**
+
+For **Web HTTP/HTML:**
+```
+Action.c                  ← Main script with correlations and parameterisation
+vuser_init.c              ← Initialization file
+vuser_end.c               ← Cleanup file
+globals.h                 ← Required header
+default.cfg               ← Runtime settings
+ScriptUploadMetadata.xml  ← Project metadata
+ParameterFile.prm         ← Parameter definitions (username, password, etc.)
+collection_data.dat       ← Data rows (one per virtual user iteration)
+```
+
+For **DevWeb:**
+```
+main.js                   ← Complete DevWeb script
+parameters.yml            ← Parameter definitions
+collection_data.csv       ← Data rows
+rts.yml                   ← Runtime settings
+tsconfig.json             ← TypeScript config
+DevWebSdk.d.ts            ← SDK type definitions
+```
+
+---
+
+## B7. Copy to Your LRE Project
+
+Unzip the downloaded file and copy all files into your LRE project folder. For Web HTTP/HTML, copy into your existing VuGen project folder (replacing existing files). Ask your LRE admin if you need help.
+
+---
+
+# PART C — COMMON QUESTIONS
+
+## Can I use Tool 2 without Tool 1?
+
+Yes. VuGen-Script-Studio.html is completely independent. You can record HAR files directly using browser DevTools (F12) without going through VuGen-Recorder.html first.
+
+## What format should I choose?
+
+Ask your LRE admin. If you are unsure:
+- **Web HTTP/HTML** — the more established format, used in most existing LRE environments
+- **DevWeb** — newer format, preferred for modern web applications
+
+## What if my username and password are hardcoded in the script?
+
+Tool 2 automatically detects username and password fields and replaces them with `{Username}` and `{Password}` parameters. You then add your test user credentials to the `collection_data.dat` file (one row per virtual user).
+
+## What if the tool shows "unresolved candidates"?
+
+Some dynamic values could not be automatically traced to their source. These will appear as `TODO` comments in the script. Your LRE admin can resolve these manually.
+
+---
+
+# PART D — WORKFLOW SUMMARY
+
+```
+┌─────────────────────────────────────────────────────────────────────────┐
+│                                                                         │
+│  STEP 1 — PLAN                                                          │
+│  Write down your transaction names (T01_Login, T02_Search, ...)         │
+│                                                                         │
+│  STEP 2 — SETUP (one-time only)                                         │
 │  Open VuGen-Recorder.html → drag ▶ START and ■ END to Bookmarks Bar    │
-│                                                                          │
-│  FOR EACH RECORDING SESSION                                              │
-│  1. Open browser → F12 → Network tab → clear entries                    │
-│  2. Navigate to the start of your application                            │
-│  3. For each transaction:                                                │
-│     a. Click ▶ START Transaction → type name → OK                       │
-│     b. Browse application naturally (click buttons, fill forms, etc.)   │
-│     c. Click ■ END Transaction → type same name → OK                    │
-│  4. Network tab → Right-click → Save all as HAR with content            │
-│  5. Open VuGen-Recorder.html → Drop the HAR file                        │
-│  6. Review the request table                                             │
-│  7. Click "⬇ Download All Files"                                        │
-│  8. Copy files to your LRE project folder                               │
-│                                                                          │
-└──────────────────────────────────────────────────────────────────────────┘
+│                                                                         │
+│  STEP 3 — RECORD (do this twice for best results)                       │
+│  F12 → Network tab → Clear → For each transaction:                      │
+│    Click ▶ START → do the steps → click ■ END                          │
+│  Right-click in Network → Save all as HAR with content                  │
+│                                                                         │
+│  STEP 4 — GENERATE BASIC SCRIPT                                         │
+│  Open VuGen-Recorder.html → drop HAR → choose format → download ZIP    │
+│                                                                         │
+│  STEP 5 — GENERATE PRODUCTION SCRIPT (recommended)                      │
+│  Open VuGen-Script-Studio.html → drop BOTH HAR files → Generate        │
+│  → Review correlations panel → download ZIP                             │
+│                                                                         │
+│  STEP 6 — UPLOAD TO LRE                                                 │
+│  Copy ZIP contents to your VuGen project folder                         │
+│  Ask your LRE admin to upload and run the script                        │
+│                                                                         │
+└─────────────────────────────────────────────────────────────────────────┘
 ```
 
 ---
 
 ## Need Help?
 
-Contact your **LRE Admin Team** for:
-- Getting the `VuGen-Recorder.html` file
-- Understanding where to copy your script files
-- Uploading scripts to LRE
+| Who to contact | When |
+|---|---|
+| **LRE Admin Team** | Getting the tools, understanding output formats, uploading to LRE |
+| **Team Lead** | Deciding which transactions to test, test scenario design |
+| **IT Helpdesk** | Browser issues, file access, blocked downloads |
 
 ---
 
-*VuGen HAR Script Generator v1.0 — LRE Admin Tool*
+*LRE Admin Tool — VuGen HAR Script Generator Suite v2.0*

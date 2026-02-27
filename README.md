@@ -1,69 +1,110 @@
-# VuGen HAR Script Generator
+# LRE HAR Script Generator — Tool Suite
 
-A single-file browser tool that converts browser HAR recordings into ready-to-use LoadRunner Enterprise (LRE) performance test scripts — no installation, no admin rights, no browser extension required.
+A set of **zero-installation** browser tools that replace VuGen's blocked network recorder for LoadRunner Enterprise (LRE) performance testing.
 
-## Why This Tool Exists
-
-VuGen's built-in recorder installs kernel-level network drivers (WinPcap/NPCAP) which are blocked by enterprise antivirus and org policy. This tool provides a fully browser-based alternative using the browser's built-in DevTools HAR export.
-
-## How It Works
-
-```
-Step 1 — Record         Step 2 — Import          Step 3 — Download
-──────────────          ────────────────          ─────────────────
-Open browser F12   →    Drop .har file       →    Scripts generated
-Use bookmarklets        into the tool             automatically
-to mark START/END       Group into                for both protocols
-of transactions         transactions
-```
-
-## Features
-
-- **Zero dependencies** — single `.html` file, works offline, no npm, no server
-- **Bookmarklet-based transaction marking** — click a bookmark to start/end a transaction without leaving your app
-- **Dual format output** — generates both Web HTTP/HTML (C) and DevWeb (JavaScript) scripts simultaneously
-- **Format selector** — choose which protocol format you need before generating
-- **Domain filter panel** — filter requests by domain (like VuGen's Recording Report Hosts tab)
-- **Smart noise filtering** — auto-removes static assets, analytics trackers, OPTIONS preflight requests
-- **Select Mode** — manually group requests into transactions if you forgot to use bookmarklets
-- **Resizable panels** — drag the dividers between domain list, request table, and script preview
-- **Live script preview** — see generated scripts update instantly as you change filters
-
-## Output Files
-
-| File | Protocol | Purpose |
-|---|---|---|
-| `Action.c` | Web HTTP/HTML | Main script with transactions and requests |
-| `vuser_init.c` | Web HTTP/HTML | Initialization stub |
-| `vuser_end.c` | Web HTTP/HTML | Cleanup stub |
-| `globals.h` | Web HTTP/HTML | Required header file |
-| `main.js` | DevWeb | Complete DevWeb protocol script |
-
-## Usage
-
-1. **One-time setup:** Open `VuGen-Recorder.html` → drag the **▶ START Transaction** and **■ END Transaction** bookmarklets to your browser's Bookmarks Bar
-2. **Record:** Open your app → F12 → Network tab → click bookmarks around each transaction → save as HAR
-3. **Generate:** Drop the HAR file into the tool → select format → review → download
-
-## Documentation
-
-| File | Contents |
-|---|---|
-| `USER-GUIDE.md` | Full step-by-step guide for end users |
-| `QUICK-REFERENCE.md` | Printable one-page cheat sheet |
-| `TROUBLESHOOTING.md` | Common issues and fixes |
-
-## Supported Browsers
-
-Chrome, Microsoft Edge, Firefox
-
-## Requirements
-
-- No installation
-- No admin rights
-- No internet connection required (fully offline)
-- Works on any machine that can open an HTML file in a browser
+> **No installation. No admin rights. No internet connection. No additional files to download.**
+> Everything is packaged inside the two HTML files below.
 
 ---
 
-*LRE Admin Tool — VuGen HAR Script Generator v1.0*
+## What's In This Folder
+
+| File | What it does |
+|---|---|
+| **`VuGen-Recorder.html`** | **Step 1 tool** — Records a HAR file and converts it into a basic LRE script |
+| **`VuGen-Script-Studio.html`** | **Step 2 tool** — Compares two HAR recordings to automatically detect and correlate dynamic values (session IDs, tokens, form fields) |
+| `USER-GUIDE.md` | Full step-by-step guide for both tools |
+| `QUICK-REFERENCE.md` | Printable one-page cheat sheet |
+| `TROUBLESHOOTING.md` | Solutions to common problems |
+
+---
+
+## Which Tool Do I Use?
+
+```
+┌─────────────────────────────────────────────────────────────────────┐
+│                                                                     │
+│  STARTING OUT?  →  Use  VuGen-Recorder.html  first                  │
+│                                                                     │
+│  GETTING CORRELATION ERRORS or WANT A PRODUCTION-READY SCRIPT?     │
+│                  →  Use  VuGen-Script-Studio.html  afterwards        │
+│                                                                     │
+└─────────────────────────────────────────────────────────────────────┘
+```
+
+### Tool 1 — VuGen-Recorder.html (Basic)
+
+Use this when you want to:
+- Quickly generate a script to test your recording works
+- Get a first-cut script with transactions and request structure
+
+**How it works:**
+1. Open your app in a browser, press F12, record your actions using the bookmarklet markers
+2. Export the HAR file from DevTools
+3. Drop the HAR into this tool → download your script
+
+**Output:** A ZIP file containing a complete VuGen project (Action.c for Web HTTP/HTML, or main.js for DevWeb)
+
+---
+
+### Tool 2 — VuGen-Script-Studio.html (Advanced — Recommended for production)
+
+Use this when you want to:
+- Automatically detect dynamic values (session IDs, CSRF tokens, hidden form fields) and generate correlation rules
+- Replace hardcoded values (username, password, card numbers, etc.) with parameterised data
+- Generate a script that will actually work under load with multiple concurrent users
+
+**How it works:**
+1. Record your application **twice** (two separate HAR files — each recording is a separate login session)
+2. Drop **both** HAR files into this tool
+3. The tool compares the two recordings, detects every value that changed between sessions, and automatically generates all the `web_reg_save_param` extraction rules
+4. Download a complete, production-ready VuGen project ZIP
+
+**Can I use it with only 1 HAR?** Yes — it still detects common patterns (JWT tokens, CSRF headers, session cookies). Two HARs gives far better results.
+
+---
+
+## Distribution — What To Give To Your Team
+
+This entire toolset is just **two HTML files**. No web server, no installation, no dependencies.
+
+To share with your team, copy these files to a shared folder or email them:
+```
+VuGen-Recorder.html         ← Tool 1 (self-contained, ~170KB)
+VuGen-Script-Studio.html    ← Tool 2 (self-contained, ~200KB)
+USER-GUIDE.md               ← How-to guide
+QUICK-REFERENCE.md          ← Cheat sheet
+TROUBLESHOOTING.md          ← Problem fixes
+```
+
+> Both HTML files include all JavaScript libraries (JSZip etc.) **built-in**. Nothing else to install or download.
+
+---
+
+## Why This Tool Exists
+
+VuGen's built-in recorder fails on most enterprise machines because it installs kernel-level network drivers (WinPcap/NPCAP) which are blocked by antivirus and organisation security policy. This toolset provides a fully browser-based alternative using the browser's built-in DevTools HAR export — requiring zero installation and zero admin rights.
+
+---
+
+## Supported Browsers
+
+| Browser | Supported |
+|---|---|
+| Google Chrome | ✅ Recommended |
+| Microsoft Edge | ✅ Fully supported |
+| Firefox | ✅ Supported |
+| Internet Explorer | ❌ Not supported |
+
+---
+
+## Supported Output Formats
+
+| Format | Main File | Use In |
+|---|---|---|
+| Web HTTP/HTML (C) | `Action.c` | VuGen Web HTTP/HTML protocol projects |
+| DevWeb (JavaScript) | `main.js` | VuGen DevWeb protocol projects |
+
+---
+
+*LRE Admin Tool — VuGen HAR Script Generator Suite v2.0*
