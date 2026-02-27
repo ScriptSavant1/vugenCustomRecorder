@@ -430,6 +430,9 @@ function applyFilters(entries){
     const reqCt=(e.hdrsMap['content-type']||'').split(';')[0].trim().toLowerCase();
     if(reqCt==='application/csp-report'||reqCt==='application/reports+json'){e.filtered=true;continue;}
     if(e.body&&e.body.text&&e.body.text.includes('"blocked-uri"')){e.filtered=true;continue;}
+    // Filter WebSocket upgrade requests — wss:// and ws:// cannot be replayed by VuGen
+    // Web HTTP/HTML protocol; including them causes 400 Bad Request errors
+    if(/^wss?:\/\//i.test(e.url)){e.filtered=true;continue;}
     const ct=e.ct;
     if(e.method==='OPTIONS'){e.filtered=true;continue;}
     if(STATIC_CT.has(ct)){e.filtered=true;continue;}
@@ -1297,8 +1300,13 @@ function genMainJS(entries, correlations){
   if(S.candidates&&S.candidates.length>0){
     o+='    // TODO: Unresolved correlations — source response body was not captured in HAR.\n';
     o+='    // Re-record with DevTools "Disable cache" enabled (⚙ → Disable cache) to trace source.\n';
-    for(const cand of S.candidates)
-      o+=`    load.global.${cand.hint} = null; // TODO: extract from response\n`;
+    o+='    // Once the extraction source is identified, add a TextCheckExtractor or JsonPathExtractor\n';
+    o+='    // to the response that returns the value, and assign it to load.global.<name>.\n';
+    for(const cand of S.candidates){
+      const safeHint=sanitizeCandHint(cand.hint);
+      const usedAt=(cand.usages||[]).map(u=>u.reqUrl||u.reqIdx).filter(Boolean).slice(0,2).join(', ');
+      o+=`    //   • ${safeHint} — used in: ${usedAt||'request body'}\n`;
+    }
     o+='\n';
   }
   o+='    load.log("✓ Initialization complete", load.LogLevel.info);\n';
@@ -1827,13 +1835,31 @@ function genActionC(entries, correlations){
         o+=`\t\t"Referer=${ref}",\n\t\t"Snapshot=${sn}",\n\t\t"Mode=HTML",\n`;
         o+=`\t\t"EncType=${encType}",\n`;
         if(body){
+          // Smart chunking — never break inside an escape sequence (\xHH, \X).
+          // Splitting mid-escape produces invalid C hex literals e.g. "\xC""3..." → wrong byte.
           const bodyAttr=isBinary?'BodyBinary':'Body';
           const CHUNK=200;
-          if(body.length<=CHUNK){ o+=`\t\t"${bodyAttr}=${body}",\n`; }
-          else {
-            o+=`\t\t"${bodyAttr}=${body.substring(0,CHUNK)}"\n`;
-            let i=CHUNK;
-            while(i<body.length){ const c2=body.substring(i,i+CHUNK); i+=CHUNK; o+=`\t\t"${c2}"${i<body.length?'':','}\n`; }
+          if(body.length<=CHUNK){
+            o+=`\t\t"${bodyAttr}=${body}",\n`;
+          } else {
+            const chunks=[];
+            let pos=0;
+            while(pos<body.length){
+              let end=Math.min(pos+CHUNK, body.length);
+              if(end<body.length){
+                // Back up to avoid splitting inside a \xHH or \X escape sequence
+                if(body[end-1]==='\\') end--;                                            // lone '\'
+                else if(end>=2  && body[end-2]==='\\' && body[end-1]==='x') end-=2;     // '\x'
+                else if(end>=3  && body[end-3]==='\\' && body[end-2]==='x') end-=3;     // '\xH'
+              }
+              chunks.push(body.substring(pos,end));
+              pos=end;
+            }
+            // Output: attr= on first chunk, comma only on last chunk, no comma on middle chunks
+            o+=`\t\t"${bodyAttr}=${chunks[0]}"\n`;
+            for(let i=1;i<chunks.length;i++){
+              o+=(i===chunks.length-1)?`\t\t"${chunks[i]}",\n`:`\t\t"${chunks[i]}"\n`;
+            }
           }
         }
         o+=`\t\tLAST);\n\n`;

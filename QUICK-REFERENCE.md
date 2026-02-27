@@ -169,6 +169,21 @@ For Recording 2:
 
 > Uncheck to include something. The script preview updates instantly.
 
+**Always auto-filtered (cannot be included):**
+CSP violation reports, WebSocket connections (`wss://`/`ws://`).
+These are excluded because VuGen cannot replay them — they would cause 400 errors.
+
+---
+
+## Collapsing Transactions (Tool 1)
+
+| Action | How |
+|---|---|
+| Collapse one transaction | Click the coloured ▼ START row |
+| Expand one transaction | Click the coloured ▶ START row |
+| Collapse all at once | Click "⊖ Collapse All" in the toolbar |
+| Expand all at once | Click "⊕ Expand All" in the toolbar |
+
 ---
 
 ## Status Colours in the Request Table
@@ -199,4 +214,4 @@ TOOL 2:
 
 ---
 
-*LRE Admin Tool — Quick Reference v2.0*
+*LRE Admin Tool — Quick Reference v2.1*

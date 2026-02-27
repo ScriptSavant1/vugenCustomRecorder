@@ -41,9 +41,13 @@ Use this when you want to:
 **How it works:**
 1. Open your app in a browser, press F12, record your actions using the bookmarklet markers
 2. Export the HAR file from DevTools
-3. Drop the HAR into this tool → download your script
+3. Drop the HAR into this tool → review the request table → download your script
 
 **Output:** A ZIP file containing a complete VuGen project (Action.c for Web HTTP/HTML, or main.js for DevWeb)
+
+**Table features:** Requests are grouped into colour-coded transaction bands. Click a transaction header to collapse/expand its requests. Use "⊖ Collapse All" to minimise all transactions at once — useful when you have many transactions and want an overview.
+
+**Auto-filtered (never included in scripts):** images, fonts, CSS, analytics trackers, OPTIONS pre-flights, CSP violation reports, and WebSocket (`wss://`/`ws://`) upgrade requests.
 
 ---
 
@@ -107,4 +111,4 @@ VuGen's built-in recorder fails on most enterprise machines because it installs 
 
 ---
 
-*LRE Admin Tool — VuGen HAR Script Generator Suite v2.0*
+*LRE Admin Tool — VuGen HAR Script Generator Suite v2.1*

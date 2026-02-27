@@ -196,10 +196,14 @@ The tool will instantly:
 
 **Review the table:** You will see your requests grouped into colour-coded transaction bands. Check that the groupings look correct.
 
+**Collapse/expand transactions:** If you have many transactions, click any transaction header row (the coloured ▼ START row) to collapse that group. Use the **"⊖ Collapse All"** button in the toolbar to minimise everything at once, then expand just the transactions you want to inspect.
+
 **Adjust filters if needed:**
 - The left panel shows domains — uncheck any you do not want in the script
 - The top checkboxes filter static assets, analytics, and pre-flight requests
 - The script preview updates live as you change filters
+
+> **Note:** Some requests are always excluded automatically: browser pre-flights (OPTIONS), analytics trackers, CSP violation reports, and WebSocket connections (`wss://`). These cannot be replayed by VuGen and would cause errors if included.
 
 **Download your script:**
 Click **"⬇ Download Script"** → a ZIP file downloads containing your complete VuGen project.
@@ -370,7 +374,7 @@ Tool 2 automatically detects username and password fields and replaces them with
 
 ## What if the tool shows "unresolved candidates"?
 
-Some dynamic values could not be automatically traced to their source. These will appear as `TODO` comments in the script. Your LRE admin can resolve these manually.
+Some dynamic values could not be automatically traced to their source. These appear as `// TODO` comment blocks in the generated script — **no broken code is emitted**, just a note explaining which values need manual attention and where they are used. Your LRE admin can resolve these by re-recording with **"Disable cache"** enabled in DevTools (⚙ → Disable cache), or by adding the extraction rule manually in VuGen's Correlation Studio.
 
 ---
 
