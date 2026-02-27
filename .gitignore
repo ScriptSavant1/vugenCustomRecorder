@@ -1,5 +1,6 @@
 # Claude AI project context
 .claude/
+/BKP/
 
 # OS files
 .DS_Store
