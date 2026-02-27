@@ -425,6 +425,11 @@ function parseHar(har){
 function applyFilters(entries){
   for(const e of entries){
     if(e.isMarker){e.filtered=false;continue;} // always keep transaction markers
+    // Filter CSP violation reports — browser auto-sends these when our bookmarklet
+    // .invalid marker URLs are blocked by the app's Content Security Policy
+    const reqCt=(e.hdrsMap['content-type']||'').split(';')[0].trim().toLowerCase();
+    if(reqCt==='application/csp-report'||reqCt==='application/reports+json'){e.filtered=true;continue;}
+    if(e.body&&e.body.text&&e.body.text.includes('"blocked-uri"')){e.filtered=true;continue;}
     const ct=e.ct;
     if(e.method==='OPTIONS'){e.filtered=true;continue;}
     if(STATIC_CT.has(ct)){e.filtered=true;continue;}
@@ -1000,18 +1005,37 @@ function needsBinary(text){
   }
   return false;
 }
-// Escape body for BodyBinary= — non-printable and non-ASCII chars become \xHH; backslash and quote escaped
+// Escape body for BodyBinary= — encodes as C string safe for VuGen's attribute parser.
+// Non-ASCII chars are emitted as UTF-8 bytes using \xHH sequences.
 function escBodyBinary(text){
   let out='';
   for(let i=0;i<text.length;i++){
     const c=text.charCodeAt(i);
-    if(c===34) out+='\\"';            // double-quote
-    else if(c===92) out+='\\\\';      // backslash
-    else if(c===9)  out+='\\t';
-    else if(c===10) out+='\\n';
-    else if(c===13) out+='\\r';
-    else if(c<32||c>126) out+='\\x'+c.toString(16).padStart(2,'0').toUpperCase();
-    else out+=text[i];
+    if(c===34)       out+='\\"';       // " → \"
+    else if(c===92)  out+='\\\\';      // \ → \\
+    else if(c===9)   out+='\\t';       // tab
+    else if(c===10)  out+='\\n';       // LF
+    else if(c===13)  out+='\\r';       // CR
+    else if(c<32)    out+='\\x'+c.toString(16).padStart(2,'0').toUpperCase(); // other ctrl
+    else if(c<127)   out+=text[i];     // printable ASCII
+    else if(c<0x800){ // 2-byte UTF-8 (U+0080..U+07FF)
+      out+='\\x'+(0xC0|(c>>6)).toString(16).toUpperCase().padStart(2,'0');
+      out+='\\x'+(0x80|(c&0x3F)).toString(16).toUpperCase().padStart(2,'0');
+    } else if(c>=0xD800&&c<=0xDBFF&&i+1<text.length){ // surrogate pair → 4-byte UTF-8
+      const lo=text.charCodeAt(i+1);
+      if(lo>=0xDC00&&lo<=0xDFFF){
+        const cp=0x10000+((c-0xD800)<<10)+(lo-0xDC00);
+        out+='\\x'+(0xF0|(cp>>18)).toString(16).toUpperCase().padStart(2,'0');
+        out+='\\x'+(0x80|((cp>>12)&0x3F)).toString(16).toUpperCase().padStart(2,'0');
+        out+='\\x'+(0x80|((cp>>6)&0x3F)).toString(16).toUpperCase().padStart(2,'0');
+        out+='\\x'+(0x80|(cp&0x3F)).toString(16).toUpperCase().padStart(2,'0');
+        i++; // consume low surrogate
+      }
+    } else { // 3-byte UTF-8 (U+0800..U+FFFF)
+      out+='\\x'+(0xE0|(c>>12)).toString(16).toUpperCase().padStart(2,'0');
+      out+='\\x'+(0x80|((c>>6)&0x3F)).toString(16).toUpperCase().padStart(2,'0');
+      out+='\\x'+(0x80|(c&0x3F)).toString(16).toUpperCase().padStart(2,'0');
+    }
   }
   return out;
 }
@@ -1759,8 +1783,9 @@ function genActionC(entries, correlations){
 
       } else {
         // ── web_custom_request (JSON, XML, multipart, PUT, DELETE, PATCH) ───
-        // Determine body encoding: BodyBinary= for non-printable/binary content, Body= for plain ASCII text
-        const isBinary = rawBodyText && (needsBinary(rawBodyText) || (e.body&&e.body.encoding==='base64'));
+        // Always use BodyBinary= to match VuGen native recording behavior.
+        // Body= causes VuGen attribute parser errors with JSON braces, colons, and other special chars.
+        const isBinary = true;
         let body='';
         if(rawBodyText){
           // Escape body for C string embedding (binary-safe or plain)

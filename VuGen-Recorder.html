@@ -273,6 +273,7 @@ https://github.com/nodeca/pako/blob/main/LICENSE
     <div class="tbar-sep"></div>
     <span class="fmt-badge" id="fmt-badge">🌐 Web HTTP/HTML</span>
     <button class="btn btn-muted btn-sm" onclick="openFmtModal(true)">⚙ Change Format</button>
+    <button class="btn btn-muted btn-sm" id="btn-collapse-all" style="display:none" onclick="toggleCollapseAll()">⊖ Collapse All</button>
     <span id="stats"></span>
   </div>
 
@@ -419,7 +420,8 @@ const S = {
   format: 'webhttp',  // 'webhttp' | 'devweb' | 'both'
   pendingHar: null,   // parsed HAR JSON waiting for format confirmation
   domainFilter: {},   // hostname → true (include) | false (exclude)
-  domainStats: {}     // hostname → {count, size}
+  domainStats: {},    // hostname → {count, size}
+  collapsed: {}       // txnName → true (collapsed) | false (expanded)
 };
 
 const COLORS = [
@@ -558,6 +560,11 @@ function applyFilters(){
 
   for(const e of S.entries){
     if(e.isMarker){e.filtered=false;continue;}
+    // Filter CSP violation reports — browser auto-sends these when our bookmarklet
+    // .invalid marker URLs are blocked by the app's Content Security Policy
+    const reqCt=(e.hdrsMap['content-type']||'').split(';')[0].trim().toLowerCase();
+    if(reqCt==='application/csp-report'||reqCt==='application/reports+json'){e.filtered=true;continue;}
+    if(e.body&&e.body.text&&e.body.text.includes('"blocked-uri"')){e.filtered=true;continue;}
     // Domain filter (unchecked domains are excluded)
     try{
       const host=new URL(e.url).hostname;
@@ -589,16 +596,85 @@ function renderTable(){
     html+=entryRow(e);
   }
   document.getElementById('tbody').innerHTML = html||'<tr><td colspan="7" style="text-align:center;padding:40px;color:var(--muted)">No entries</td></tr>';
+  applyCollapse();
+  updateCollapseAllBtn();
+}
+
+// Toggle a single transaction group collapsed/expanded.
+// row — the clicked .txn-start <tr> element (passed via onclick="toggleTxn(this)")
+function toggleTxn(row){
+  const name=row.dataset.grp;
+  S.collapsed[name]=!S.collapsed[name];
+  applyCollapse();
+  updateCollapseAllBtn();
+}
+
+// Apply S.collapsed state to visible DOM rows.
+// Walks tbody children: for each txn-start row, shows/hides all rows
+// belonging to that group (requests + txn-end) based on S.collapsed.
+function applyCollapse(){
+  const tbody=document.getElementById('tbody');
+  if(!tbody) return;
+  let currentGrp=null;
+  let collapsed=false;
+  for(const row of tbody.rows){
+    if(row.classList.contains('txn-start')){
+      currentGrp=row.dataset.grp;
+      collapsed=!!(S.collapsed[currentGrp]);
+      // Update arrow
+      const arrow=row.querySelector('.txn-arrow');
+      if(arrow) arrow.textContent=collapsed?'▶':'▼';
+      row.style.display='';
+    } else if(row.classList.contains('txn-end')){
+      row.style.display=collapsed?'none':'';
+      currentGrp=null; collapsed=false;
+    } else {
+      // request row — hide if inside a collapsed group
+      row.style.display=(currentGrp&&collapsed)?'none':'';
+    }
+  }
+}
+
+function collapseAll(){
+  for(const t of S.txns) S.collapsed[t.name]=true;
+  applyCollapse();
+  updateCollapseAllBtn();
+}
+
+function expandAll(){
+  S.collapsed={};
+  applyCollapse();
+  updateCollapseAllBtn();
+}
+
+function toggleCollapseAll(){
+  const anyExpanded=S.txns.some(t=>!S.collapsed[t.name]);
+  if(anyExpanded) collapseAll(); else expandAll();
+}
+
+function updateCollapseAllBtn(){
+  const btn=document.getElementById('btn-collapse-all');
+  if(!btn) return;
+  btn.style.display=S.txns.length?'':'none';
+  const anyExpanded=S.txns.some(t=>!S.collapsed[t.name]);
+  btn.textContent=anyExpanded?'⊖ Collapse All':'⊕ Expand All';
 }
 
 function markerRow(e){
   const c=S.colorMap[e.txnName]||COLORS[0];
-  const icon=e.markerType==='start'?'▶ START':'■ END';
   const border=e.markerType==='start'?'border-top':'border-bottom';
-  return `<tr class="txn-${e.markerType}" style="background:${c.bg};${border}:2px solid ${c.bd}">
-    <td colspan="7" style="color:${c.tx};font-weight:700;font-size:11px;letter-spacing:.4px">
-      ${icon}: ${e.txnName}
-    </td></tr>`;
+  if(e.markerType==='start'){
+    const arrow=S.collapsed[e.txnName]?'▶':'▼';
+    return `<tr class="txn-start" data-grp="${esc(e.txnName)}" style="background:${c.bg};${border}:2px solid ${c.bd};cursor:pointer;user-select:none" onclick="toggleTxn(this)">
+      <td colspan="7" style="color:${c.tx};font-weight:700;font-size:11px;letter-spacing:.4px">
+        <span class="txn-arrow" style="display:inline-block;width:14px;text-align:center">${arrow}</span> START: ${esc(e.txnName)}
+      </td></tr>`;
+  } else {
+    return `<tr class="txn-end" data-grp="${esc(e.txnName)}" style="background:${c.bg};${border}:2px solid ${c.bd}">
+      <td colspan="7" style="color:${c.tx};font-weight:700;font-size:11px;letter-spacing:.4px">
+        <span style="display:inline-block;width:14px;text-align:center">■</span> END: ${esc(e.txnName)}
+      </td></tr>`;
+  }
 }
 
 function entryRow(e){
@@ -621,7 +697,7 @@ function entryRow(e){
 
   const urlShort=e.url.length>75?e.url.substring(0,75)+'…':e.url;
 
-  return `<tr id="r${e.id}" class="${dim} ${sel} ${selable}"
+  return `<tr id="r${e.id}" class="${dim} ${sel} ${selable}" data-grp="${esc(e.txn||'')}"
     style="${rowBg}" onclick="rowClick(${e.id})" title="${esc(e.url)}">
     <td style="color:var(--muted)">${e.id}</td>
     <td><span class="m ${mc}">${e.method}</span></td>
@@ -692,8 +768,9 @@ function genActionC(){
         encType=(e.body.mimeType||encType).split(';')[0].trim();
         rawBodyText=e.body.text||'';
       }
-      // Determine body encoding: BodyBinary= for non-printable/binary content, Body= for plain ASCII text
-      const isBinary = rawBodyText && (needsBinary(rawBodyText) || (e.body&&e.body.encoding==='base64'));
+      // Always use BodyBinary= to match VuGen native recording behavior.
+      // Body= causes VuGen attribute parser errors with JSON braces, colons, and other special chars.
+      const isBinary = true;
       const body = rawBodyText
         ? (isBinary ? escBodyBinary(rawBodyText)
                     : rawBodyText.replace(/\\/g,'\\\\').replace(/"/g,'\\"').replace(/\r?\n/g,'\\n').replace(/\t/g,'\\t'))
@@ -1524,18 +1601,37 @@ function needsBinary(text){
   }
   return false;
 }
-// Escape body for BodyBinary= — non-printable and non-ASCII chars become \xHH; backslash and quote escaped
+// Escape body for BodyBinary= — encodes as C string safe for VuGen's attribute parser.
+// Non-ASCII chars are emitted as UTF-8 bytes using \xHH sequences.
 function escBodyBinary(text){
   let out='';
   for(let i=0;i<text.length;i++){
     const c=text.charCodeAt(i);
-    if(c===34) out+='\\"';
-    else if(c===92) out+='\\\\';
-    else if(c===9)  out+='\\t';
-    else if(c===10) out+='\\n';
-    else if(c===13) out+='\\r';
-    else if(c<32||c>126) out+='\\x'+c.toString(16).padStart(2,'0').toUpperCase();
-    else out+=text[i];
+    if(c===34)       out+='\\"';
+    else if(c===92)  out+='\\\\';
+    else if(c===9)   out+='\\t';
+    else if(c===10)  out+='\\n';
+    else if(c===13)  out+='\\r';
+    else if(c<32)    out+='\\x'+c.toString(16).padStart(2,'0').toUpperCase();
+    else if(c<127)   out+=text[i];
+    else if(c<0x800){
+      out+='\\x'+(0xC0|(c>>6)).toString(16).toUpperCase().padStart(2,'0');
+      out+='\\x'+(0x80|(c&0x3F)).toString(16).toUpperCase().padStart(2,'0');
+    } else if(c>=0xD800&&c<=0xDBFF&&i+1<text.length){
+      const lo=text.charCodeAt(i+1);
+      if(lo>=0xDC00&&lo<=0xDFFF){
+        const cp=0x10000+((c-0xD800)<<10)+(lo-0xDC00);
+        out+='\\x'+(0xF0|(cp>>18)).toString(16).toUpperCase().padStart(2,'0');
+        out+='\\x'+(0x80|((cp>>12)&0x3F)).toString(16).toUpperCase().padStart(2,'0');
+        out+='\\x'+(0x80|((cp>>6)&0x3F)).toString(16).toUpperCase().padStart(2,'0');
+        out+='\\x'+(0x80|(cp&0x3F)).toString(16).toUpperCase().padStart(2,'0');
+        i++;
+      }
+    } else {
+      out+='\\x'+(0xE0|(c>>12)).toString(16).toUpperCase().padStart(2,'0');
+      out+='\\x'+(0x80|((c>>6)&0x3F)).toString(16).toUpperCase().padStart(2,'0');
+      out+='\\x'+(0x80|(c&0x3F)).toString(16).toUpperCase().padStart(2,'0');
+    }
   }
   return out;
 }
