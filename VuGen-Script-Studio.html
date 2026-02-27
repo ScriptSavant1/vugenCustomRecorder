@@ -967,6 +967,13 @@ function twoHarCorrelate(entries1, entries2){
       }
 
       // ── FALLBACK 3: Record as unresolved candidate ─────────────────────────
+      // Skip if all usages are body form/JSON fields whose KEY matches PARAM_KEYS_MAP.
+      // These are user-entered values (creditCard, username, etc.) — not server-generated tokens.
+      // detectParams() will handle them with the correct parameter substitution.
+      const allBodyUsages=info.usages.every(u=>u.location==='body_form'||u.location==='body_json');
+      if(allBodyUsages && matchParamKey(info.hint||'')){
+        continue; // drop — let detectParams() parameterise it instead
+      }
       candidates.push({
         hint:info.hint||'DynParam',
         value:value1.substring(0,80),   // truncated for display
@@ -1153,6 +1160,21 @@ const PARAM_KEYS_MAP = [
   { pattern: /^(amount|price|qty|quantity|total|num_?passengers?)$/i,   name:'Quantity',   csvKey:'Quantity' },
 ];
 
+// Check whether a form/body field key is a known user-input parameter (not a server-generated token).
+// Strips dot-prefix (order.creditCard → creditCard) and colon-prefix before matching PARAM_KEYS_MAP.
+// Returns the matching entry or null.
+function matchParamKey(key){
+  const keysToTry=[key];
+  const dotIdx=key.lastIndexOf('.');
+  if(dotIdx>=0){ const s=key.substring(dotIdx+1); if(s) keysToTry.push(s); }
+  const colonIdx=key.lastIndexOf(':');
+  if(colonIdx>=0){ const s=key.substring(colonIdx+1); if(s) keysToTry.push(s); }
+  for(const pm of PARAM_KEYS_MAP){
+    if(keysToTry.some(k=>pm.pattern.test(k))) return pm;
+  }
+  return null;
+}
+
 function detectParams(entries, correlations){
   // Build set of all values already handled as correlations (skip those)
   const corrValues=new Set();
@@ -1178,7 +1200,10 @@ function detectParams(entries, correlations){
     if(String(value).length<2) return;
     const sv=String(value);
     if(corrValues.has(sv)||corrValues.has(decodeURIComponent(sv))||corrValues.has(encodeURIComponent(sv))) return;
-    if(isDynamic(sv)) return;
+    // Allow known user-input param fields (creditCard, username, etc.) to bypass the isDynamic gate.
+    // These are user-entered values that look like tokens (e.g. 16-digit card = numericId) but are
+    // never in a server response — they must be parameterised, not correlated.
+    if(isDynamic(sv) && !matchParamKey(key)) return;
     // Try full key, dot-suffix ("order.creditCard"→"creditCard"), and colon-suffix ("f:cust:firstName"→"firstName")
     const keysToTry=[key];
     const dotIdx=key.lastIndexOf('.');
