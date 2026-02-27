@@ -577,6 +577,12 @@ function genParamName(hint, counter){
   counter[base]=n;
   return n>1?base+'_'+n:base;
 }
+// Sanitize a raw hint (may contain HTTP header hyphens etc.) into a valid VuGen/C identifier
+function sanitizeCandHint(hint){
+  let s=(hint||'DynParam').replace(/[^a-zA-Z0-9]/g,'_').replace(/^_+|_+$/g,'').replace(/_+/g,'_');
+  if(!s||/^\d/.test(s)) s='Param_'+s;
+  return s.charAt(0).toUpperCase()+s.slice(1);
+}
 
 // Find value in a single response entry → returns {type, config} or null
 function findValueInResponse(value, entry){
@@ -985,6 +991,30 @@ function escJs(s){ return String(s).replace(/\\/g,'\\\\').replace(/"/g,'\\"').re
 function escTpl(s){ return String(s).replace(/`/g,'\\`').replace(/\$\{/g,'\\${'); }
 function esc(s){ return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
 function fmtSize(b){ if(!b||b<=0)return '-'; if(b<1024)return b+'B'; if(b<1048576)return (b/1024).toFixed(1)+'KB'; return (b/1048576).toFixed(1)+'MB'; }
+// Returns true if body text requires BodyBinary= (non-printable chars outside \t \n \r range)
+function needsBinary(text){
+  for(let i=0;i<text.length;i++){
+    const c=text.charCodeAt(i);
+    if(c>126) return true;
+    if(c<32&&c!==9&&c!==10&&c!==13) return true;
+  }
+  return false;
+}
+// Escape body for BodyBinary= — non-printable and non-ASCII chars become \xHH; backslash and quote escaped
+function escBodyBinary(text){
+  let out='';
+  for(let i=0;i<text.length;i++){
+    const c=text.charCodeAt(i);
+    if(c===34) out+='\\"';            // double-quote
+    else if(c===92) out+='\\\\';      // backslash
+    else if(c===9)  out+='\\t';
+    else if(c===10) out+='\\n';
+    else if(c===13) out+='\\r';
+    else if(c<32||c>126) out+='\\x'+c.toString(16).padStart(2,'0').toUpperCase();
+    else out+=text[i];
+  }
+  return out;
+}
 
 // ═══════════════════════════════════════════════════════════════════════════
 // EXTRACTOR CODE GENERATORS
@@ -1614,9 +1644,10 @@ function genActionC(entries, correlations){
           return cuBase===eBase;
         });
         if(used){
-          o+=`\t// TODO: Correlate "${cand.hint}" — source response body was not captured in HAR.\n`;
+          const safeHint=sanitizeCandHint(cand.hint);
+          o+=`\t// TODO: Correlate "${safeHint}" — source response body was not captured in HAR.\n`;
           o+=`\t// Re-record with DevTools "Disable cache" enabled to trace extraction source.\n`;
-          o+=`\t// web_reg_save_param_ex("${cand.hint}", "LB=TODO_LEFT_BOUNDARY", "RB=TODO_RIGHT_BOUNDARY", LAST);\n\n`;
+          o+=`\t// web_reg_save_param("${safeHint}", "LB=TODO_LEFT_BOUNDARY", "RB=TODO_RIGHT_BOUNDARY", LAST);\n\n`;
         }
       }
     }
@@ -1695,8 +1726,9 @@ function genActionC(entries, correlations){
                 if(cu.reqIdx!==idx||cu.location!=='body_form') continue;
                 const rv=String(cand.fullValue||cand.value||''); if(!rv) continue;
                 let dec; try{dec=decodeURIComponent(rv.replace(/\+/g,' '));}catch{dec=rv;}
-                if(sv.includes(rv))  sv=sv.split(rv).join(`{${cand.hint}}`);
-                else if(dec&&dec!==rv&&sv.includes(dec)) sv=sv.split(dec).join(`{${cand.hint}}`);
+                const safeHint=sanitizeCandHint(cand.hint);
+                if(sv.includes(rv))  sv=sv.split(rv).join(`{${safeHint}}`);
+                else if(dec&&dec!==rv&&sv.includes(dec)) sv=sv.split(dec).join(`{${safeHint}}`);
               }
             }
           }
@@ -1727,9 +1759,13 @@ function genActionC(entries, correlations){
 
       } else {
         // ── web_custom_request (JSON, XML, multipart, PUT, DELETE, PATCH) ───
+        // Determine body encoding: BodyBinary= for non-printable/binary content, Body= for plain ASCII text
+        const isBinary = rawBodyText && (needsBinary(rawBodyText) || (e.body&&e.body.encoding==='base64'));
         let body='';
         if(rawBodyText){
-          body=rawBodyText.replace(/\\/g,'\\\\').replace(/"/g,'\\"').replace(/\r?\n/g,'\\n').replace(/\t/g,'\\t');
+          // Escape body for C string embedding (binary-safe or plain)
+          body = isBinary ? escBodyBinary(rawBodyText)
+                          : rawBodyText.replace(/\\/g,'\\\\').replace(/"/g,'\\"').replace(/\r?\n/g,'\\n').replace(/\t/g,'\\t');
           for(const u of bodyUsages){
             const rawVal=u.tokenValue||u.originalValue;
             const variants=[rawVal, encodeURIComponent(rawVal), decodeURIComponent(rawVal||''), String(rawVal).replace(/ /g,'+')];
@@ -1744,7 +1780,8 @@ function genActionC(entries, correlations){
                 if(cu.location!=='body_form'&&cu.location!=='body_json') continue;
                 const rawVal=cand.fullValue||cand.value;
                 const variants=[rawVal, encodeURIComponent(rawVal), decodeURIComponent(rawVal||''), String(rawVal).replace(/ /g,'+')];
-                for(const sv of variants){ if(sv&&body.includes(sv)){ body=body.replace(sv,`{${cand.hint}}`); break; } }
+                const safeHint=sanitizeCandHint(cand.hint);
+                for(const sv of variants){ if(sv&&body.includes(sv)){ body=body.replace(sv,`{${safeHint}}`); break; } }
               }
             }
           }
@@ -1765,10 +1802,11 @@ function genActionC(entries, correlations){
         o+=`\t\t"Referer=${ref}",\n\t\t"Snapshot=${sn}",\n\t\t"Mode=HTML",\n`;
         o+=`\t\t"EncType=${encType}",\n`;
         if(body){
+          const bodyAttr=isBinary?'BodyBinary':'Body';
           const CHUNK=200;
-          if(body.length<=CHUNK){ o+=`\t\t"Body=${body}",\n`; }
+          if(body.length<=CHUNK){ o+=`\t\t"${bodyAttr}=${body}",\n`; }
           else {
-            o+=`\t\t"Body=${body.substring(0,CHUNK)}"\n`;
+            o+=`\t\t"${bodyAttr}=${body.substring(0,CHUNK)}"\n`;
             let i=CHUNK;
             while(i<body.length){ const c2=body.substring(i,i+CHUNK); i+=CHUNK; o+=`\t\t"${c2}"${i<body.length?'':','}\n`; }
           }
@@ -1786,14 +1824,8 @@ function genActionC(entries, correlations){
 function genVuserInit(){ return 'vuser_init()\n{\n\treturn 0;\n}\n'; }
 function genVuserEnd(){ return 'vuser_end()\n{\n\treturn 0;\n}\n'; }
 function genGlobalsH(){
-  let vars='';
-  if(S.candidates&&S.candidates.length>0){
-    vars+='// TODO: Unresolved correlations — re-record with DevTools "Disable cache" to trace source\n';
-    for(const cand of S.candidates)
-      vars+=`char* ${cand.hint}; // TODO: correlate from response\n`;
-    vars+='\n';
-  }
-  return `#ifndef _GLOBALS_H\n#define _GLOBALS_H\n\n//--------------------------------------------------------------------\n// Include Files\n#include "lrun.h"\n#include "web_api.h"\n#include "lrw_custom_body.h"\n\n//--------------------------------------------------------------------\n// Global Variables\n${vars}\n#endif // _GLOBALS_H\n`;
+  // VuGen parameters set by web_reg_save_param are runtime-managed — no char* declarations needed.
+  return `#ifndef _GLOBALS_H\n#define _GLOBALS_H\n\n//--------------------------------------------------------------------\n// Include Files\n#include "lrun.h"\n#include "web_api.h"\n#include "lrw_custom_body.h"\n\n//--------------------------------------------------------------------\n// Global Variables\n\n#endif // _GLOBALS_H\n`;
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
