@@ -687,24 +687,30 @@ function genActionC(){
       o+=`\t\t"Snapshot=${sn}",\n\t\t"Mode=HTML",\n\t\tLAST);\n\n`;
     } else {
       let encType='application/x-www-form-urlencoded';
-      let body='';
+      let rawBodyText='';
       if(e.body){
         encType=(e.body.mimeType||encType).split(';')[0].trim();
-        body=(e.body.text||'').replace(/\\/g,'\\\\').replace(/"/g,'\\"')
-             .replace(/\r?\n/g,'\\n').replace(/\t/g,'\\t');
+        rawBodyText=e.body.text||'';
       }
+      // Determine body encoding: BodyBinary= for non-printable/binary content, Body= for plain ASCII text
+      const isBinary = rawBodyText && (needsBinary(rawBodyText) || (e.body&&e.body.encoding==='base64'));
+      const body = rawBodyText
+        ? (isBinary ? escBodyBinary(rawBodyText)
+                    : rawBodyText.replace(/\\/g,'\\\\').replace(/"/g,'\\"').replace(/\r?\n/g,'\\n').replace(/\t/g,'\\t'))
+        : '';
       o+=`\tweb_custom_request("${n}",\n\t\t"URL=${e.url}",\n\t\t"Method=${e.method}",\n`;
       o+=`\t\t"Resource=0",\n\t\t"RecContentType=${ct}",\n`;
       o+=`\t\t"Referer=${ref}",\n\t\t"Snapshot=${sn}",\n\t\t"Mode=HTML",\n`;
       o+=`\t\t"EncType=${encType}",\n`;
       if(body){
         // Split long bodies into multi-line C string concatenation (max 200 chars/line)
+        const bodyAttr=isBinary?'BodyBinary':'Body';
         const CHUNK=200;
         if(body.length<=CHUNK){
-          o+=`\t\t"Body=${body}",\n`;
+          o+=`\t\t"${bodyAttr}=${body}",\n`;
         } else {
           const first=body.substring(0,CHUNK);
-          o+=`\t\t"Body=${first}"\n`;
+          o+=`\t\t"${bodyAttr}=${first}"\n`;
           let i=CHUNK;
           while(i<body.length){
             const chunk=body.substring(i,i+CHUNK);
@@ -1509,6 +1515,30 @@ function clearAll(){
 function esc(s){ return(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
 function escJs(s){ return(s||'').replace(/\\/g,'\\\\').replace(/"/g,'\\"').replace(/\n/g,'\\n').replace(/\r/g,'\\r').replace(/\t/g,'\\t'); }
 function escTpl(s){ return(s||'').replace(/\\/g,'\\\\').replace(/`/g,'\\`').replace(/\$\{/g,'\\${'); }
+// Returns true if body text requires BodyBinary= (non-printable chars outside \t \n \r range)
+function needsBinary(text){
+  for(let i=0;i<text.length;i++){
+    const c=text.charCodeAt(i);
+    if(c>126) return true;
+    if(c<32&&c!==9&&c!==10&&c!==13) return true;
+  }
+  return false;
+}
+// Escape body for BodyBinary= — non-printable and non-ASCII chars become \xHH; backslash and quote escaped
+function escBodyBinary(text){
+  let out='';
+  for(let i=0;i<text.length;i++){
+    const c=text.charCodeAt(i);
+    if(c===34) out+='\\"';
+    else if(c===92) out+='\\\\';
+    else if(c===9)  out+='\\t';
+    else if(c===10) out+='\\n';
+    else if(c===13) out+='\\r';
+    else if(c<32||c>126) out+='\\x'+c.toString(16).padStart(2,'0').toUpperCase();
+    else out+=text[i];
+  }
+  return out;
+}
 function fmtSize(b){
   if(!b||b<=0) return '-';
   if(b<1024) return b+'B';
