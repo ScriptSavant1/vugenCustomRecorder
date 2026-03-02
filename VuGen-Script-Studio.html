@@ -1393,7 +1393,24 @@ function genMainJS(entries, correlations){
   o+='    // Default request options\n';
   o+='    load.WebRequest.defaults.returnBody = false;\n';
   o+='    load.WebRequest.defaults.headers = {\n';
-  for(const [k,v] of Object.entries(defHdrs)) o+=`        "${escJs(k)}": "${escJs(v)}",\n`;
+  for(const [k,v] of Object.entries(defHdrs)){
+    // Substitute any correlated value embedded inside a default header string
+    let dv=v; let isDynDef=false;
+    for(const c of correlations){
+      for(const u of c.usages){
+        const rawVal=u.tokenValue||u.originalValue;
+        if(rawVal&&dv.includes(rawVal)){
+          dv=dv.split(rawVal).join(`\x00DYNSTART_${c.name}\x00DYNEND`); isDynDef=true;
+        }
+      }
+    }
+    if(isDynDef){
+      const expr=escTpl(dv).replace(/\x00DYNSTART_([^]+?)\x00DYNEND/g,'${load.global.$1}');
+      o+=`        "${escJs(k)}": \`${expr}\`,\n`;
+    } else {
+      o+=`        "${escJs(k)}": "${escJs(v)}",\n`;
+    }
+  }
   o+='    };\n\n';
 
   // Collect transaction names (from markers, or fallback to single)
@@ -1468,6 +1485,24 @@ function genMainJS(entries, correlations){
         extraHdrs[k]={dynamic:true,expr};
       } else if(defHdrs[k]===undefined||defHdrs[k]!==v){
         extraHdrs[k]={dynamic:false,value:v};
+      }
+    }
+    // Substitute correlated values embedded inside non-correlation header strings
+    // e.g. jsessionid in Referer URL, or a token embedded mid-string in a custom header
+    for(const [k,hh] of Object.entries(extraHdrs)){
+      if(hh.dynamic) continue; // already a full correlation replacement
+      let v=hh.value; let changed=false;
+      for(const c of correlations){
+        for(const u of c.usages){
+          const rawVal=u.tokenValue||u.originalValue;
+          if(rawVal&&v.includes(rawVal)){
+            v=v.split(rawVal).join(`\x00DYNSTART_${c.name}\x00DYNEND`); changed=true;
+          }
+        }
+      }
+      if(changed){
+        const expr=escTpl(v).replace(/\x00DYNSTART_([^]+?)\x00DYNEND/g,'${load.global.$1}');
+        extraHdrs[k]={dynamic:true,expr};
       }
     }
 
@@ -1701,7 +1736,43 @@ function genActionC(entries, correlations){
     }
   }
 
+  // ── Header analysis: determine universal (auto) vs per-request headers ────
+  // Headers handled by VuGen attributes or managed internally — never emit via web_add_header
+  const SKIP_HDR_AC=new Set([
+    'referer','content-type','content-length','host','connection',
+    'transfer-encoding','upgrade-insecure-requests','expect',
+    'cookie','cookie2','te','trailer','via','dnt',
+    'x-forwarded-for','if-none-match','if-modified-since',
+    'if-unmodified-since','if-match','cache-control','pragma',
+    'sec-ch-ua','sec-ch-ua-mobile','sec-ch-ua-platform',
+    'sec-fetch-dest','sec-fetch-mode','sec-fetch-site','sec-fetch-user'
+  ]);
+  // Convert "accept-language" → "Accept-Language" for readable C code
+  function hdrTitleCase(n){ return n.replace(/(?:^|-)([a-z])/g,(_,c)=>c.toUpperCase()); }
+  // Count header name+value occurrences across all visible (non-filtered, non-marker) entries
+  const visEntries=entries.filter(e=>!e.filtered&&!e.isMarker);
+  const hdrFreq={};
+  for(const ev of visEntries){
+    for(const h of (ev.reqHdrs||[])){
+      const k=h.name.toLowerCase();
+      if(SKIP_HDR_AC.has(k)||k.startsWith(':')) continue;
+      if(!hdrFreq[k]) hdrFreq[k]=new Map();
+      hdrFreq[k].set(h.value,(hdrFreq[k].get(h.value)||0)+1);
+    }
+  }
+  // Headers appearing with the same value in ≥80% of entries → web_add_auto_header (global)
+  const autoHdrs={};
+  const aThresh=Math.max(1,Math.ceil(visEntries.length*0.8));
+  for(const [k,valMap] of Object.entries(hdrFreq)){
+    for(const [v,cnt] of valMap){ if(cnt>=aThresh){ autoHdrs[k]=v; break; } }
+  }
+
   let o='Action()\n{\n\n\tweb_set_sockets_option("SSL_VERSION", "AUTO");\n\n';
+  // Global headers (same value on every request) — set once with web_add_auto_header
+  for(const [k,v] of Object.entries(autoHdrs)){
+    o+=`\tweb_add_auto_header("${hdrTitleCase(k)}", "${escJs(v)}");\n`;
+  }
+  if(Object.keys(autoHdrs).length) o+='\n';
   let snap=1;
   const hasMarkers=entries.some(e=>e.isMarker);
 
@@ -1789,6 +1860,15 @@ function genActionC(entries, correlations){
     for(const u of hdrUsages){
       const replVal=u.prefix?`${u.prefix}{${u.name}}`:`{${u.name}}`;
       o+=`\tweb_add_header("${u.key}", "${replVal}");\n`;
+    }
+    // Per-request headers: not covered by global auto-headers, not skip-listed, not already a correlation
+    const corrHdrKeys=new Set(hdrUsages.map(u=>u.key.toLowerCase()));
+    for(const h of (e.reqHdrs||[])){
+      const k=h.name.toLowerCase();
+      if(SKIP_HDR_AC.has(k)||k.startsWith(':')) continue;
+      if(autoHdrs[k]!==undefined) continue;        // already set globally
+      if(corrHdrKeys.has(k)) continue;             // already emitted as correlation
+      o+=`\tweb_add_header("${hdrTitleCase(k)}", "${escJs(h.value)}");\n`;
     }
 
     if(e.method==='GET'||e.method==='HEAD'){

@@ -91,6 +91,33 @@ All captured data is lost. Start over:
 
 ---
 
+### ❓ My application opens a popup window or new tab during the journey — those requests are missing
+
+**Cause:** Developer Tools only captures traffic from the tab it is open in. Requests made in a popup window or new tab are not recorded in the original tab's Network view.
+
+**Workaround — record each tab separately:**
+1. In your **main browser tab**, open F12 → Network tab → clear entries
+2. Start your journey in the main tab (click START marker, begin your steps)
+3. When the **popup or new tab opens**, immediately press **F12** in that new window too → click Network → clear entries
+4. Complete the steps in the popup, then close it or return to the main tab
+5. Continue the remaining steps in the main tab
+6. Export **both** HAR files:
+   - From the main tab: right-click → "Save all as HAR with content" → save as `main_flow.har`
+   - From the popup tab: same → save as `popup_flow.har`
+7. Load both files into the tool — use the drag area to load `main_flow.har` first, then re-drop `popup_flow.har` onto it (Tool 1 merges by timestamp automatically)
+
+> ⚠️ This feature (multi-HAR merge by timestamp) is planned for a future version. For now, combine the request tables manually using **Select Mode** in Tool 1.
+
+**Alternative — capture all tabs at once (Chrome/Edge):**
+1. Navigate to `chrome://net-export/` in a new tab
+2. Click **"Start Logging to Disk"** → save the file
+3. Perform your entire journey (all tabs)
+4. Click **"Stop"**
+5. Convert the NetLog file to HAR using **[netlog2har](https://netlog-viewer.appspot.com/)** (free online tool)
+6. Import the resulting HAR into the tool
+
+---
+
 ### ❓ My start/end markers are not being detected by the tool
 
 Check the marker URL format. The tool requires exactly this pattern:
@@ -178,6 +205,18 @@ Use the **collapse** feature to hide the requests inside each transaction:
 4. Use **"⊕ Expand All"** to restore everything
 
 The collapse state is remembered while you adjust filters — transactions you collapsed stay collapsed.
+
+---
+
+### ❓ The generated Action.c has no request headers (no Accept, User-Agent, etc.)
+
+**This should no longer happen** — the tool now automatically generates:
+- `web_add_auto_header()` calls at the top of Action() for headers that appear with the same value across all (or most) requests, such as `User-Agent`, `Accept`, `Accept-Language`, `Accept-Encoding`, and `Priority`
+- `web_add_header()` calls before specific requests for per-request varying headers, such as `Origin` (on cross-origin POST requests) and any application-specific custom headers
+
+If you see a header-less script from an older version, regenerate using the current version of the tool.
+
+> **Intentionally omitted:** `Referer` (already in the `"Referer=..."` attribute), `Content-Type` (handled by `"EncType=..."` in `web_custom_request` and automatically by ITEMDATA in `web_submit_data`), `Cookie` (managed by VuGen's cookie jar), and browser-internal headers (`sec-*`, `cache-control`, `connection`, `host`).
 
 ---
 

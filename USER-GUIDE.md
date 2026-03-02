@@ -168,6 +168,21 @@ After completing all transactions:
 
 ---
 
+### ⚠️ What if my application opens a popup window or new tab?
+
+Developer Tools (F12) only captures traffic from the tab it is attached to. If part of your user journey happens in a **popup window or new browser tab**, those requests will not appear in your original recording.
+
+**Workaround:**
+1. When the popup or new tab opens, immediately press **F12** in that window too
+2. Click the Network tab and clear any existing entries in the popup window
+3. Complete your steps in the popup, then close it or return to the main tab
+4. When your full journey is complete, export a HAR from **each tab separately**
+5. Manually combine the two HAR exports using a text editor (they are JSON files), or re-record with the requests from the popup included in your main journey where possible
+
+> **Alternative:** Chrome and Edge have a built-in all-tab capture at `chrome://net-export/`. Start logging, perform your journey across all tabs, stop, then convert the NetLog file to HAR format using a free online converter.
+
+---
+
 ## A4. Generating Your Script
 
 ### Step 6 — Load the HAR File into the Tool
