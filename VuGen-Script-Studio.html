@@ -1321,6 +1321,28 @@ function twoHarCorrelate(entries1, entries2){
         }
       }
 
+      // ── FALLBACK 2d: Dynamic header with UUID/hex/token pattern → generate at runtime ───
+      // Covers: client-generated CSRF tokens, per-iteration nonces, random API keys.
+      // These are never in any server response — the client JS generates them.
+      // Use lr_param_sprintf / crypto.randomUUID() to produce a matching format each iteration.
+      if(info.usages.some(u=>u.location==='header')){
+        let genPat=null;
+        if(DYNAMIC_PATTERNS.uuid.test(value1))       genPat='uuid';
+        else if(DYNAMIC_PATTERNS.hex64.test(value1)) genPat='hex64';
+        else if(DYNAMIC_PATTERNS.hex32.test(value1)) genPat='hex32';
+        else if(DYNAMIC_PATTERNS.hex16.test(value1)) genPat='hex16';
+        else if(isCsrfHdr)                           genPat='alphanumeric'; // CSRF header — best effort
+        if(genPat){
+          const hdrKey=info.usages.find(u=>u.location==='header')?.key||info.hint||'DynToken';
+          const name=genParamName(sanitizeCandHint(hdrKey),counter);
+          const usages=info.usages.map(u=>({reqIdx:u.reqIdx,location:u.location,key:u.key,
+            originalValue:u.originalHeaderValue||u.value1,tokenValue:u.value1,prefix:u.prefix||''}));
+          corrs.push({name,sourceIdx:-1,extractorType:'generate',
+            extractorConfig:{pattern:genPat,length:value1.length},usages});
+          continue;
+        }
+      }
+
       // ── FALLBACK 3: Record as unresolved candidate ─────────────────────────
       // Skip if all usages are body form/JSON fields whose KEY matches PARAM_KEYS_MAP.
       // These are user-entered values (creditCard, username, etc.) — not server-generated tokens.
@@ -1420,6 +1442,8 @@ function devwebExtractorCode(corr){
       return `            new load.HtmlExtractor("${name}", "${cfg.selector}", "${cfg.attr||'value'}")`;
     case 'boundary_header':
       return `            new load.BoundaryExtractor("${name}", "${escJs(cfg.lb)}", "${escJs(cfg.rb)}", {scope: "Headers"})`;
+    case 'generate':
+      return null; // generated at action start — not a response extractor
     case 'boundary':
     default:
       return `            new load.BoundaryExtractor("${name}", "${escJs(cfg.lb)}", "${escJs(cfg.rb)}")`;
@@ -1449,6 +1473,20 @@ function webHttpCorrCode(corr, indent){
     case 'boundary_header':
       // web_reg_save_param (NOT _ex): Search=Headers to extract from response header
       return `${t}web_reg_save_param("${name}",\n${t}\t"LB=${escJs(cfg.lb)}",\n${t}\t"RB=\\r\\n",\n${t}\t"Search=Headers",\n${t}\t"Ord=1",\n${t}\tLAST);\n`;
+    case 'generate': {
+      // Client-side token generation — no response to extract from
+      const pat=cfg.pattern||'alphanumeric';
+      if(pat==='uuid')
+        return `${t}lr_param_sprintf("${name}",\n${t}\t"%08x-%04x-4%03x-%04x-%04x%08x",\n${t}\trand(), rand()&0xffff, rand()&0x0fff, (rand()&0x3fff)|0x8000, rand()&0xffff, rand());\n`;
+      if(pat==='hex64')
+        return `${t}lr_param_sprintf("${name}",\n${t}\t"%08x%08x%08x%08x%08x%08x%08x%08x",\n${t}\trand(),rand(),rand(),rand(),rand(),rand(),rand(),rand());\n`;
+      if(pat==='hex32')
+        return `${t}lr_param_sprintf("${name}",\n${t}\t"%08x%08x%08x%08x",\n${t}\trand(),rand(),rand(),rand());\n`;
+      if(pat==='hex16')
+        return `${t}lr_param_sprintf("${name}",\n${t}\t"%08x%08x",\n${t}\trand(),rand());\n`;
+      // alphanumeric / generic
+      return `${t}lr_param_sprintf("${name}",\n${t}\t"%08x%08x%04x",\n${t}\trand(),rand(),rand());\n`;
+    }
     case 'boundary':
     default:
       // web_reg_save_param (NOT _ex): default searches Body — no Search= needed
@@ -1743,6 +1781,25 @@ function genMainJS(entries, correlations){
     }
   }
   o+='    };\n\n';
+  // Generate dynamic token values (client-side UUID/hex) once per iteration
+  const genCorrsMj=correlations.filter(c=>c.extractorType==='generate');
+  if(genCorrsMj.length>0){
+    o+='    // Generate dynamic values for this iteration\n';
+    for(const c of genCorrsMj){
+      const pat=c.extractorConfig.pattern||'alphanumeric';
+      if(pat==='uuid')
+        o+=`    load.global.${c.name} = require('crypto').randomUUID();\n`;
+      else if(pat==='hex64')
+        o+=`    load.global.${c.name} = require('crypto').randomBytes(32).toString('hex');\n`;
+      else if(pat==='hex32')
+        o+=`    load.global.${c.name} = require('crypto').randomBytes(16).toString('hex');\n`;
+      else if(pat==='hex16')
+        o+=`    load.global.${c.name} = require('crypto').randomBytes(8).toString('hex');\n`;
+      else
+        o+=`    load.global.${c.name} = require('crypto').randomBytes(16).toString('hex');\n`;
+    }
+    o+='\n';
+  }
 
   // Collect transaction names (from markers, or fallback to single)
   const txnNames=S.txns.map(t=>t.name);
@@ -1800,7 +1857,7 @@ function genMainJS(entries, correlations){
     })();
     const numStr=String(rid).padStart(2,'0');
     const varN=`webResponse_${numStr}`;
-    const hasSrc=corrSources.has(idx);
+    const hasSrc=corrSources.has(idx)&&(corrSources.get(idx)||[]).some(c=>c.extractorType!=='generate');
     const reqUsages=corrUsages.get(idx)||[];
 
     // Build headers (only diff from defaults, apply correlation replacements)
@@ -2010,18 +2067,22 @@ function genMainJS(entries, correlations){
         o+=`        "body": \`${escTpl(bodyText)}\`,\n`;
       }
     }
-    if(hasSrc){
+    const srcCorrsForReq=(corrSources.get(idx)||[]).filter(c=>c.extractorType!=='generate');
+    if(srcCorrsForReq.length>0){
       o+=`        "returnBody": true,\n`;
       o+=`        "extractors": [\n`;
-      for(const c of corrSources.get(idx)) o+=devwebExtractorCode(c)+',\n';
+      for(const c of srcCorrsForReq){
+        const extCode=devwebExtractorCode(c);
+        if(extCode) o+=extCode+',\n';
+      }
       o+=`        ],\n`;
     }
     o+=`    }).sendSync();\n`;
     o+=`    load.log(\`${rn} - Status: \${${varN}.status}\`, load.LogLevel.info);\n`;
 
     // Store extracted values
-    if(hasSrc){
-      for(const c of corrSources.get(idx))
+    if(srcCorrsForReq.length>0){
+      for(const c of srcCorrsForReq)
         o+=`    load.global.${c.name} = ${varN}.extractors.${c.name};\n`;
     }
 
@@ -2152,6 +2213,13 @@ function genActionC(entries, correlations){
     o+=`\tweb_add_auto_header("${hdrTitleCase(k)}", "${escJs(v)}");\n`;
   }
   if(Object.keys(autoHdrs).length) o+='\n';
+  // Generate dynamic token values (client-side UUID/hex) once per iteration
+  const genCorrsAC=correlations.filter(c=>c.extractorType==='generate');
+  if(genCorrsAC.length>0){
+    o+='\t// Generate dynamic values for this iteration\n';
+    for(const c of genCorrsAC) o+=webHttpCorrCode(c,'\t');
+    o+='\n';
+  }
   let snap=1;
   const hasMarkers=entries.some(e=>e.isMarker);
 
