@@ -1768,7 +1768,16 @@ function genMainJS(entries, correlations){
           :`\${load.global.${hdrUsage.name}}`;
         extraHdrs[k]={dynamic:true,expr};
       } else if(defHdrs[k]===undefined||defHdrs[k]!==v){
-        extraHdrs[k]={dynamic:false,value:v};
+        // Check if this header value is an unresolved candidate — never emit static dynamic values
+        let candHintMj=null;
+        if(S.candidates){
+          for(const cand of S.candidates){
+            if(cand.usages.some(cu=>cu.location==='header'&&(cu.key||'').toLowerCase()===k.toLowerCase())){
+              candHintMj=sanitizeCandHint(cand.hint); break;
+            }
+          }
+        }
+        extraHdrs[k]={dynamic:false,value:v,todo:candHintMj||null};
       }
     }
     // Substitute correlated values embedded inside non-correlation header strings
@@ -1905,6 +1914,11 @@ function genMainJS(entries, correlations){
       o+=`        "headers": {\n`;
       for(const [k,h] of Object.entries(extraHdrs)){
         if(h.dynamic) o+=`            "${escJs(k)}": \`${h.expr}\`,\n`;
+        else if(h.todo){
+          o+=`            // TODO: ${k} is dynamic — source response not captured (browser cache).\n`;
+          o+=`            // Re-record with DevTools "Disable cache" checked, then the extractor will be generated automatically.\n`;
+          o+=`            // "${escJs(k)}": \`\${load.global.${h.todo}}\`,\n`;
+        }
         else o+=`            "${escJs(k)}": "${escJs(h.value)}",\n`;
       }
       o+=`        },\n`;
@@ -2172,7 +2186,22 @@ function genActionC(entries, correlations){
       if(SKIP_HDR_AC.has(k)||k.startsWith(':')) continue;
       if(autoHdrs[k]!==undefined) continue;        // already set globally
       if(corrHdrKeys.has(k)) continue;             // already emitted as correlation
-      o+=`\tweb_add_header("${hdrTitleCase(k)}", "${escJs(h.value)}");\n`;
+      // Check if this header's value is an unresolved candidate — never emit static dynamic values
+      let candHint=null;
+      if(S.candidates){
+        for(const cand of S.candidates){
+          if(cand.usages.some(cu=>cu.location==='header'&&(cu.key||'').toLowerCase()===k)){
+            candHint=sanitizeCandHint(cand.hint); break;
+          }
+        }
+      }
+      if(candHint){
+        o+=`\t// TODO: ${hdrTitleCase(k)} is dynamic — source response not captured (browser cache).\n`;
+        o+=`\t// Re-record with DevTools "Disable cache" checked, then the extractor will be generated automatically.\n`;
+        o+=`\t// web_add_header("${hdrTitleCase(k)}", "{${candHint}}");\n`;
+      } else {
+        o+=`\tweb_add_header("${hdrTitleCase(k)}", "${escJs(h.value)}");\n`;
+      }
     }
 
     if(e.method==='GET'||e.method==='HEAD'){
