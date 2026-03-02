@@ -1114,6 +1114,8 @@ function genActionC(){
 // Headers never included anywhere (browser-internal / connection-level)
 const SKIP_HDRS=new Set([
   'host','content-length','connection',
+  // Cookie headers — managed by DevWeb SDK cookie jar automatically
+  'cookie','cookie2',
   'sec-ch-ua','sec-ch-ua-mobile','sec-ch-ua-platform',
   'sec-fetch-dest','sec-fetch-mode','sec-fetch-site','sec-fetch-user',
   'upgrade-insecure-requests','dnt',
