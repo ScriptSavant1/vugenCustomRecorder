@@ -95,26 +95,27 @@ All captured data is lost. Start over:
 
 **Cause:** Developer Tools only captures traffic from the tab it is open in. Requests made in a popup window or new tab are not recorded in the original tab's Network view.
 
-**Workaround — record each tab separately:**
+**Recommended — use `chrome://net-export/` (captures ALL tabs simultaneously):**
+
+Both **VuGen HAR Script Generator** and **VuGen Script Studio** can now read Chrome NetLog `.json` files directly — no conversion needed.
+
+1. In Chrome/Edge, open a new tab and navigate to `chrome://net-export/`
+2. Click **"Start Logging to Disk"** → choose a file name → click **Save**
+3. Open your application in a **separate new tab** (the net-export tab stays running in the background)
+4. Use the **▶ START Transaction** and **■ END Transaction** bookmarklets as normal — they are captured by NetLog regardless of which tab fires them
+5. Complete your entire user journey (including any popup windows or new tabs the app opens)
+6. Switch back to the `chrome://net-export/` tab and click **"Stop Logging"**
+7. Drop the saved `.json` NetLog file into the tool just as you would a `.har` file
+
+> **Important:** NetLog does not capture POST request bodies. The generated script will contain `// TODO: POST body not available in NetLog` comments for those requests. Add the body content manually by checking what was sent in the application (use browser DevTools in the same session for reference, or check API documentation).
+
+**Transaction markers in NetLog:** The bookmarklet fires `fetch("https://START-TxnName.invalid")` which operates at the browser network-stack level — captured by NetLog from **any tab**, so transaction names are preserved correctly.
+
+**Alternative — record each tab separately (if net-export is unavailable):**
 1. In your **main browser tab**, open F12 → Network tab → clear entries
-2. Start your journey in the main tab (click START marker, begin your steps)
-3. When the **popup or new tab opens**, immediately press **F12** in that new window too → click Network → clear entries
-4. Complete the steps in the popup, then close it or return to the main tab
-5. Continue the remaining steps in the main tab
-6. Export **both** HAR files:
-   - From the main tab: right-click → "Save all as HAR with content" → save as `main_flow.har`
-   - From the popup tab: same → save as `popup_flow.har`
-7. Load both files into the tool — use the drag area to load `main_flow.har` first, then re-drop `popup_flow.har` onto it (Tool 1 merges by timestamp automatically)
-
-> ⚠️ This feature (multi-HAR merge by timestamp) is planned for a future version. For now, combine the request tables manually using **Select Mode** in Tool 1.
-
-**Alternative — capture all tabs at once (Chrome/Edge):**
-1. Navigate to `chrome://net-export/` in a new tab
-2. Click **"Start Logging to Disk"** → save the file
-3. Perform your entire journey (all tabs)
-4. Click **"Stop"**
-5. Convert the NetLog file to HAR using **[netlog2har](https://netlog-viewer.appspot.com/)** (free online tool)
-6. Import the resulting HAR into the tool
+2. Start your journey in the main tab
+3. When the popup opens, press F12 in that window too and clear entries
+4. Export HAR from each tab separately and load them into **Script Studio** as Recording 1 and Recording 2
 
 ---
 
@@ -211,12 +212,22 @@ The collapse state is remembered while you adjust filters — transactions you c
 ### ❓ The generated Action.c has no request headers (no Accept, User-Agent, etc.)
 
 **This should no longer happen** — the tool now automatically generates:
-- `web_add_auto_header()` calls at the top of Action() for headers that appear with the same value across all (or most) requests, such as `User-Agent`, `Accept`, `Accept-Language`, `Accept-Encoding`, and `Priority`
-- `web_add_header()` calls before specific requests for per-request varying headers, such as `Origin` (on cross-origin POST requests) and any application-specific custom headers
+- `web_add_auto_header()` calls at the top of `Action()` for headers that appear with the same value across ≥80% of requests, such as `User-Agent`, `Accept`, `Accept-Language`, `X-Requested-With`, and any app-specific constant headers
+- `web_add_header()` calls before specific requests for per-request varying headers, such as `Origin` (on cross-origin POST requests) and custom app headers that change per-request
+
+Header names are correctly formatted with hyphens preserved: `x-xsrf-header` → `X-Xsrf-Header` (not `XXsrfHeader`).
 
 If you see a header-less script from an older version, regenerate using the current version of the tool.
 
-> **Intentionally omitted:** `Referer` (already in the `"Referer=..."` attribute), `Content-Type` (handled by `"EncType=..."` in `web_custom_request` and automatically by ITEMDATA in `web_submit_data`), `Cookie` (managed by VuGen's cookie jar), and browser-internal headers (`sec-*`, `cache-control`, `connection`, `host`).
+> **Intentionally omitted** (VuGen handles these automatically or they are browser-internal):
+> - `Referer` → already in the `"Referer=..."` attribute of `web_url` / `web_custom_request`
+> - `Content-Type` → handled by `"EncType=..."` in `web_custom_request` and automatically by ITEMDATA in `web_submit_data`
+> - `Cookie` → managed by VuGen's cookie jar automatically
+> - `Content-Length` → computed by VuGen from the body
+> - `Accept-Encoding` → VuGen handles gzip/deflate/br decompression automatically
+> - `Priority` → HTTP/2 urgency hint, not applicable to VuGen's protocol layer
+> - `Keep-Alive`, `Connection` → connection management handled internally by VuGen
+> - Browser client hints: `Sec-CH-UA-*`, `Sec-Fetch-*`, `DNT`, `Cache-Control`, `Pragma`
 
 ---
 

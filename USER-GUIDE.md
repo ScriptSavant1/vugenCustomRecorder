@@ -170,16 +170,18 @@ After completing all transactions:
 
 ### ⚠️ What if my application opens a popup window or new tab?
 
-Developer Tools (F12) only captures traffic from the tab it is attached to. If part of your user journey happens in a **popup window or new browser tab**, those requests will not appear in your original recording.
+Developer Tools (F12) only captures traffic from the tab it is attached to. If your user journey involves a popup window or new browser tab, use **`chrome://net-export/`** — it captures all tabs simultaneously and both tools read NetLog `.json` files directly (no conversion needed).
 
-**Workaround:**
-1. When the popup or new tab opens, immediately press **F12** in that window too
-2. Click the Network tab and clear any existing entries in the popup window
-3. Complete your steps in the popup, then close it or return to the main tab
-4. When your full journey is complete, export a HAR from **each tab separately**
-5. Manually combine the two HAR exports using a text editor (they are JSON files), or re-record with the requests from the popup included in your main journey where possible
+**Using chrome://net-export/:**
+1. Open a new tab and navigate to `chrome://net-export/`
+2. Click **"Start Logging to Disk"** → save the file
+3. Open your application in **another new tab** (the net-export tab stays running in the background)
+4. Use the **▶ START** / **■ END** bookmarklets as normal — they are captured from any tab
+5. Complete your entire journey including all popups and new tabs
+6. Return to `chrome://net-export/` and click **"Stop Logging"**
+7. Drop the `.json` file into the tool — it works the same as a `.har` file
 
-> **Alternative:** Chrome and Edge have a built-in all-tab capture at `chrome://net-export/`. Start logging, perform your journey across all tabs, stop, then convert the NetLog file to HAR format using a free online converter.
+> **Note:** NetLog does not include POST request bodies. The generated script will show `// TODO: POST body not available in NetLog` for those requests — add the body content manually using your application's API documentation or by checking DevTools in a parallel session.
 
 ---
 
