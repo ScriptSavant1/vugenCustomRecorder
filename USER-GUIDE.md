@@ -302,13 +302,21 @@ While processing, the tool performs several steps automatically:
                        equivalent in Recording 2 (same URL + method)
 
 2. Detect changes    → Finds every value that is different between the
-                       two sessions (session IDs, tokens, form fields)
+                       two sessions (session IDs, tokens, form fields,
+                       CSRF headers, UUID path segments, cookies)
 
-3. Back-trace source → For each changed value, finds which earlier
-                       response contains it (response body, header, cookie)
+3. Back-trace source → For each changed value, finds the source:
+                         a) Response body / header / Set-Cookie extractor
+                         b) Double-submit cookie (CSRF headers) — even
+                            when Set-Cookie is absent from HAR
+                         c) Client-generated token (UUID/hex format) →
+                            generates a fresh random value each iteration
+                            using lr_param_sprintf / crypto.randomUUID()
 
-4. Generate rules    → Creates web_reg_save_param() extraction rules
-                       and places them in the correct position in the script
+4. Generate rules    → Creates web_reg_save_param() / CookieExtractor /
+                       lr_param_sprintf rules and places them correctly.
+                       CSRF/XSRF headers: ONE web_add_auto_header call
+                       covers all requests — no per-request repetition.
 
 5. Parameterise      → Detects common user data fields (username, password,
                        card number, dates) and replaces them with parameters
@@ -391,7 +399,9 @@ Tool 2 automatically detects username and password fields and replaces them with
 
 ## What if the tool shows "unresolved candidates"?
 
-Some dynamic values could not be automatically traced to their source. These appear as `// TODO` comment blocks in the generated script — **no broken code is emitted**, just a note explaining which values need manual attention and where they are used. Your LRE admin can resolve these by re-recording with **"Disable cache"** enabled in DevTools (⚙ → Disable cache), or by adding the extraction rule manually in VuGen's Correlation Studio.
+CSRF/XSRF headers and UUID/hex tokens are **always handled automatically** — they will not appear as unresolved.
+
+For all other values, the tool traces back through responses automatically. If a value cannot be traced (e.g., response body was not captured because the browser served from cache), a `// TODO` comment block appears in the script. **No broken code is emitted** — the comment explains what is needed. Your LRE admin can resolve these by re-recording with **"Disable cache"** enabled in DevTools (⚙ → Disable cache), which causes the response body to be captured in the HAR, and then regenerating the script.
 
 ---
 
