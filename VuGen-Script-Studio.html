@@ -1281,17 +1281,38 @@ function twoHarCorrelate(entries1, entries2){
         const firstReq=entries1[firstUsageIdx];
         const cookieHdr=(firstReq?.hdrsMap?.['cookie'])||'';
         let matchCkName=null;
+        // Pass 1: exact, URL-decoded, or URL-encoded value match
         cookieHdr.split(';').forEach(ck=>{
+          if(matchCkName) return;
           const eq=ck.indexOf('=');
           if(eq<1) return;
-          if(ck.substring(eq+1).trim()===value1) matchCkName=ck.substring(0,eq).trim();
+          const ckName=ck.substring(0,eq).trim();
+          const ckVal=ck.substring(eq+1).trim();
+          try{
+            if(ckVal===value1||decodeURIComponent(ckVal)===value1||ckVal===encodeURIComponent(value1)){
+              matchCkName=ckName;
+            }
+          }catch{ if(ckVal===value1) matchCkName=ckName; }
         });
+        // Pass 2: no value match (browser may have decoded before sending) — use cookie NAME pattern
+        // Look for any cookie named XSRF-TOKEN, csrf_token, CSRF-TOKEN, etc.
+        if(!matchCkName){
+          const XSRF_CK_PAT=/xsrf.?token|csrf.?token|xsrf|csrf/i;
+          cookieHdr.split(';').forEach(ck=>{
+            if(matchCkName) return;
+            const eq=ck.indexOf('=');
+            if(eq<1) return;
+            const ckName=ck.substring(0,eq).trim();
+            if(XSRF_CK_PAT.test(ckName)) matchCkName=ckName;
+          });
+        }
         if(matchCkName){
           let srcIdx=0;
           for(let i=0;i<firstUsageIdx;i++){
             if(!entries1[i].filtered&&!entries1[i].isMarker){srcIdx=i;break;}
           }
-          const name=genParamName('CsrfToken',counter);
+          const hdrKey=info.usages.find(u=>u.location==='header')?.key||info.hint||'CsrfToken';
+          const name=genParamName(sanitizeCandHint(hdrKey),counter);
           const usages=info.usages.map(u=>({reqIdx:u.reqIdx,location:u.location,key:u.key,
             originalValue:u.originalHeaderValue||u.value1,tokenValue:u.value1,prefix:u.prefix||''}));
           corrs.push({name,sourceIdx:srcIdx,extractorType:'cookie',
@@ -1647,6 +1668,16 @@ function genMainJS(entries, correlations){
   // Default headers from first visible request
   const firstE=entries.find(e=>!e.filtered);
   const defHdrs=firstE?filtHdrs(firstE):{'accept':'*/*','accept-encoding':'gzip, deflate, br','accept-language':'en-US,en;q=0.9'};
+  // Build set of header keys that are dynamic (correlated or unresolved) — exclude from global defaults
+  const dynHdrKeysMj=new Set();
+  for(const corr of correlations){
+    for(const u of corr.usages){ if(u.location==='header') dynHdrKeysMj.add((u.key||'').toLowerCase()); }
+  }
+  if(S.candidates){
+    for(const cand of S.candidates){
+      for(const cu of cand.usages){ if(cu.location==='header') dynHdrKeysMj.add((cu.key||'').toLowerCase()); }
+    }
+  }
 
   // ── initialize ────────────────────────────────────────────────────────────
   o+='load.initialize("init", async function() {\n';
@@ -1657,16 +1688,30 @@ function genMainJS(entries, correlations){
     o+='\n';
   }
   if(S.candidates&&S.candidates.length>0){
-    o+='    // TODO: Unresolved correlations — source response body was not captured in HAR.\n';
-    o+='    // Re-record with DevTools "Disable cache" enabled (⚙ → Disable cache) to trace source.\n';
-    o+='    // Once the extraction source is identified, add a TextCheckExtractor or JsonPathExtractor\n';
-    o+='    // to the response that returns the value, and assign it to load.global.<name>.\n';
-    for(const cand of S.candidates){
-      const safeHint=sanitizeCandHint(cand.hint);
-      const usedAt=(cand.usages||[]).map(u=>u.reqUrl||u.reqIdx).filter(Boolean).slice(0,2).join(', ');
-      o+=`    //   • ${safeHint} — used in: ${usedAt||'request body'}\n`;
+    // Header candidates: emit load.global.X = null so action can reference them
+    const hdrCands=S.candidates.filter(c=>c.usages.some(u=>u.location==='header'));
+    if(hdrCands.length>0){
+      o+='    // Unresolved dynamic headers — add extractors on the responses that set these values\n';
+      for(const cand of hdrCands){
+        const safeHint=sanitizeCandHint(cand.hint);
+        o+=`    load.global.${safeHint} = null; // TODO: add extractor\n`;
+      }
+      o+='\n';
     }
-    o+='\n';
+    // Non-header candidates: body/query values that need manual identification
+    const otherCands=S.candidates.filter(c=>!c.usages.some(u=>u.location==='header'));
+    if(otherCands.length>0){
+      o+='    // TODO: Unresolved correlations — source response body was not captured in HAR.\n';
+      o+='    // Re-record with DevTools "Disable cache" enabled (⚙ → Disable cache) to trace source.\n';
+      o+='    // Once the extraction source is identified, add a TextCheckExtractor or JsonPathExtractor\n';
+      o+='    // to the response that returns the value, and assign it to load.global.<name>.\n';
+      for(const cand of otherCands){
+        const safeHint=sanitizeCandHint(cand.hint);
+        const usedAt=(cand.usages||[]).map(u=>u.reqUrl||u.reqIdx).filter(Boolean).slice(0,2).join(', ');
+        o+=`    //   • ${safeHint} — used in: ${usedAt||'request body'}\n`;
+      }
+      o+='\n';
+    }
   }
   o+='    load.log("✓ Initialization complete", load.LogLevel.info);\n';
   o+='});\n\n';
@@ -1678,6 +1723,8 @@ function genMainJS(entries, correlations){
   o+='    load.WebRequest.defaults.returnBody = false;\n';
   o+='    load.WebRequest.defaults.headers = {\n';
   for(const [k,v] of Object.entries(defHdrs)){
+    // Skip headers that are dynamic (correlated or unresolved candidate) — handled per-request
+    if(dynHdrKeysMj.has(k)) continue;
     // Substitute any correlated value embedded inside a default header string
     let dv=v; let isDynDef=false;
     for(const c of correlations){
@@ -1767,7 +1814,7 @@ function genMainJS(entries, correlations){
           ?`${hdrUsage.prefix}\${load.global.${hdrUsage.name}}`
           :`\${load.global.${hdrUsage.name}}`;
         extraHdrs[k]={dynamic:true,expr};
-      } else if(defHdrs[k]===undefined||defHdrs[k]!==v){
+      } else if(defHdrs[k]===undefined||defHdrs[k]!==v||dynHdrKeysMj.has(k)){
         // Check if this header value is an unresolved candidate — never emit static dynamic values
         let candHintMj=null;
         if(S.candidates){
@@ -1915,9 +1962,9 @@ function genMainJS(entries, correlations){
       for(const [k,h] of Object.entries(extraHdrs)){
         if(h.dynamic) o+=`            "${escJs(k)}": \`${h.expr}\`,\n`;
         else if(h.todo){
-          o+=`            // TODO: ${k} is dynamic — source response not captured (browser cache).\n`;
-          o+=`            // Re-record with DevTools "Disable cache" checked, then the extractor will be generated automatically.\n`;
-          o+=`            // "${escJs(k)}": \`\${load.global.${h.todo}}\`,\n`;
+          // Dynamic header — emit active entry with global reference. Tester must add the extractor.
+          o+=`            // TODO: Add extractor for "${k}" on the response that sets it (e.g. Set-Cookie or response body).\n`;
+          o+=`            "${escJs(k)}": \`\${load.global.${h.todo}}\`,\n`;
         }
         else o+=`            "${escJs(k)}": "${escJs(h.value)}",\n`;
       }
@@ -2084,6 +2131,20 @@ function genActionC(entries, correlations){
   for(const [k,valMap] of Object.entries(hdrFreq)){
     for(const [v,cnt] of valMap){ if(cnt>=aThresh){ autoHdrs[k]=v; break; } }
   }
+  // Remove headers managed by correlations — those need per-request dynamic substitution
+  for(const corr of correlations){
+    for(const u of corr.usages){
+      if(u.location==='header') delete autoHdrs[(u.key||'').toLowerCase()];
+    }
+  }
+  // Remove headers that are Unresolved candidates — must emit TODO, never a static global header
+  if(S.candidates){
+    for(const cand of S.candidates){
+      for(const cu of cand.usages){
+        if(cu.location==='header') delete autoHdrs[(cu.key||'').toLowerCase()];
+      }
+    }
+  }
 
   let o='Action()\n{\n\n\tweb_set_sockets_option("SSL_VERSION", "AUTO");\n\n';
   // Global headers (same value on every request) — set once with web_add_auto_header
@@ -2196,9 +2257,10 @@ function genActionC(entries, correlations){
         }
       }
       if(candHint){
-        o+=`\t// TODO: ${hdrTitleCase(k)} is dynamic — source response not captured (browser cache).\n`;
-        o+=`\t// Re-record with DevTools "Disable cache" checked, then the extractor will be generated automatically.\n`;
-        o+=`\t// web_add_header("${hdrTitleCase(k)}", "{${candHint}}");\n`;
+        // Dynamic header — emit active call with param token. Tester must add the extractor.
+        o+=`\t// TODO: Add web_reg_save_param BEFORE the request that returns "${hdrTitleCase(k)}".\n`;
+        o+=`\t// Example (cookie source): web_reg_save_param("${candHint}", "LB=${k.toUpperCase().replace(/-/g,'_')}=", "RB=;", "Search=Headers", "Ord=1", LAST);\n`;
+        o+=`\tweb_add_header("${hdrTitleCase(k)}", "{${candHint}}");\n`;
       } else {
         o+=`\tweb_add_header("${hdrTitleCase(k)}", "${escJs(h.value)}");\n`;
       }
