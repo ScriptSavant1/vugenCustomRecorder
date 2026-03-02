@@ -304,6 +304,9 @@ const CSRF_HEADER_NAMES = new Set([
   'x-csrf-token','x-xsrf-token','x-csrftoken','csrf-token',
   '__requestverificationtoken','x-request-token'
 ]);
+// Broad pattern for any CSRF-like header name — covers custom app headers such as
+// x-xsrf-header, x-csrf-header, x-anti-forgery-token, x-request-verification, etc.
+const CSRF_HEADER_PATTERN = /csrf|xsrf|antiforg|request.?verif/i;
 const AUTH_HEADER_NAMES = new Set([
   'authorization','x-auth-token','x-api-key','x-access-token','x-token'
 ]);
@@ -697,10 +700,10 @@ function singleHarCorrelate(entries){
       }
     }
 
-    // Check CSRF headers
+    // Check CSRF headers — known set OR broad pattern (catches x-xsrf-header, x-csrf-header, etc.)
     for(const h of e.reqHdrs){
       const k=h.name.toLowerCase();
-      if(!CSRF_HEADER_NAMES.has(k)) continue;
+      if(!CSRF_HEADER_NAMES.has(k) && !CSRF_HEADER_PATTERN.test(k)) continue;
       const v=h.value;
       if(!v||v.length<4) continue;
       const key=v.substring(0,16);
@@ -710,6 +713,23 @@ function singleHarCorrelate(entries){
       if(src){
         const name=genParamName('CsrfToken',counter);
         addUsage(corrs,name,src,{reqIdx:idx,location:'header',key:h.name,originalValue:v,prefix:''});
+      } else {
+        // Fallback: CSRF tokens are often read from a cookie by JS and sent as a header.
+        // Check the Cookie request header of this same request for a cookie value that matches.
+        const cookieHdr=e.hdrsMap['cookie']||'';
+        let matchCkName=null;
+        cookieHdr.split(';').forEach(ck=>{
+          const eq=ck.indexOf('=');
+          if(eq<1) return;
+          if(ck.substring(eq+1).trim()===v) matchCkName=ck.substring(0,eq).trim();
+        });
+        if(matchCkName){
+          // Use the earliest non-marker response as the extraction source
+          let srcIdx=0; for(let i=0;i<idx;i++){if(!entries[i].filtered&&!entries[i].isMarker){srcIdx=i;break;}}
+          const name=genParamName('CsrfToken',counter);
+          addUsage(corrs,name,{type:'cookie',config:{cookieName:matchCkName},idx:srcIdx},
+            {reqIdx:idx,location:'header',key:h.name,originalValue:v,prefix:''});
+        }
       }
     }
 
@@ -834,7 +854,7 @@ function twoHarCorrelate(entries1, entries2){
       if(k==='authorization'){
         if(v1.startsWith('Bearer ')){ prefix='Bearer '; v1=v1.substring(7); v2=v2?.substring(7)||v2; }
         hint='AccessToken';
-      } else if(CSRF_HEADER_NAMES.has(k)){ hint='CsrfToken'; }
+      } else if(CSRF_HEADER_NAMES.has(k)||CSRF_HEADER_PATTERN.test(k)){ hint='CsrfToken'; }
       if(isDynamic(v1))
         changedVals.push({reqIdx:idx1,reqIdx2:idx2,location:'header',key:h1.name,value1:v1,value2:v2,hint,prefix,originalHeaderValue:h1.value});
     }
@@ -964,6 +984,36 @@ function twoHarCorrelate(entries1, entries2){
         corrs.push({name,sourceIdx:sessionSrcIdx,extractorType:'cookie',
           extractorConfig:{cookieName},usages});
         continue;
+      }
+
+      // ── FALLBACK 2c: CSRF/XSRF request header → matching request cookie ──────
+      // CSRF tokens sent as request headers are almost always derived from a server-set
+      // cookie that JavaScript reads and echoes as a header (double-submit cookie pattern).
+      // Even when Set-Cookie is absent from HAR (cached response), the Cookie request
+      // header of the same request will contain the token — use that to find the cookie name.
+      const isCsrfHdr=info.usages.some(u=>u.location==='header')&&
+        (CSRF_HEADER_NAMES.has((info.hint||'').toLowerCase())||CSRF_HEADER_PATTERN.test(info.hint||''));
+      if(isCsrfHdr){
+        const firstReq=entries1[firstUsageIdx];
+        const cookieHdr=(firstReq?.hdrsMap?.['cookie'])||'';
+        let matchCkName=null;
+        cookieHdr.split(';').forEach(ck=>{
+          const eq=ck.indexOf('=');
+          if(eq<1) return;
+          if(ck.substring(eq+1).trim()===value1) matchCkName=ck.substring(0,eq).trim();
+        });
+        if(matchCkName){
+          let srcIdx=0;
+          for(let i=0;i<firstUsageIdx;i++){
+            if(!entries1[i].filtered&&!entries1[i].isMarker){srcIdx=i;break;}
+          }
+          const name=genParamName('CsrfToken',counter);
+          const usages=info.usages.map(u=>({reqIdx:u.reqIdx,location:u.location,key:u.key,
+            originalValue:u.originalHeaderValue||u.value1,tokenValue:u.value1,prefix:u.prefix||''}));
+          corrs.push({name,sourceIdx:srcIdx,extractorType:'cookie',
+            extractorConfig:{cookieName:matchCkName},usages});
+          continue;
+        }
       }
 
       // ── FALLBACK 3: Record as unresolved candidate ─────────────────────────
@@ -2264,7 +2314,7 @@ function renderCorrelations(){
   // HAR quality warning
   if(S.harWarning){
     html+=`<div style="background:var(--warn-bg);border:1px solid var(--warn);border-radius:6px;padding:8px 12px;margin-bottom:10px;font-size:12px;color:var(--warn)">
-      <b>⚠ Truncated HAR:</b> ${esc(S.harWarning)}
+      <b>⚠ Recording Warning:</b> ${esc(S.harWarning)}
     </div>`;
   }
 
@@ -2424,6 +2474,23 @@ async function analyze(){
 
     if(S.mode==='two'&&S.entries2.length){
       S.correlations=twoHarCorrelate(S.entries1,S.entries2);
+      // Warn if very few values changed between the two recordings — likely the same browser
+      // session was reused (session tokens don't change when you stay logged in).
+      const matchedCount=S.entries1.filter(e=>!e.filtered&&!e.isMarker).length;
+      if(S.correlations.length===0&&matchedCount>5){
+        const sameSessionWarning='No dynamic values were detected between the two recordings. '+
+          'This usually means both recordings share the same browser session — session tokens, '+
+          'CSRF tokens, and cookies did not change. '+
+          'For Recording 2, use an Incognito/Private window (Ctrl+Shift+N) or log out fully '+
+          'and clear cookies before re-recording, then regenerate.';
+        S.harWarning=S.harWarning?(S.harWarning+' '+sameSessionWarning):sameSessionWarning;
+      } else if(S.correlations.length<=2&&matchedCount>10){
+        const fewCorrWarning='Only '+S.correlations.length+' dynamic value(s) detected. '+
+          'If you expected more correlations, ensure Recording 2 used a fresh session '+
+          '(Incognito window or full logout + cookie clear) — reusing the same session '+
+          'means tokens do not change and the diff finds nothing.';
+        S.harWarning=S.harWarning?(S.harWarning+' '+fewCorrWarning):fewCorrWarning;
+      }
     } else {
       S.correlations=singleHarCorrelate(S.entries1);
     }
