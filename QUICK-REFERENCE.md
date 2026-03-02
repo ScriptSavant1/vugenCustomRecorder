@@ -9,8 +9,10 @@
 
 | Tool | File | When to use |
 |---|---|---|
-| **VuGen-Recorder** | `VuGen-Recorder.html` | Quick script from one HAR recording |
-| **Script Studio** | `VuGen-Script-Studio.html` | Production script with auto-correlation (needs two HAR files) |
+| **VuGen-Recorder** | `VuGen-Recorder.html` | Quick script from one HAR or NetLog recording |
+| **Script Studio** | `VuGen-Script-Studio.html` | Production script with auto-correlation (1–2 HAR or NetLog files) |
+
+Both tools accept `.har` files (F12 DevTools) **and** `.json` NetLog files (`chrome://net-export/`) — drop either format onto the tool.
 
 ---
 

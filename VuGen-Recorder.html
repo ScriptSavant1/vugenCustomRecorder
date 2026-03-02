@@ -194,11 +194,11 @@ https://github.com/nodeca/pako/blob/main/LICENSE
        onclick="document.getElementById('hf').click()"
        ondrop="onDrop(event)" ondragover="onDragOver(event)" ondragleave="onDragLeave(event)">
     <div class="icon">📁</div>
-    <h2>Drop your .har file here</h2>
-    <p>or click to browse</p>
-    <button class="btn btn-primary" onclick="event.stopPropagation();document.getElementById('hf').click()">Browse HAR File</button>
+    <h2>Drop your .har or NetLog .json file here</h2>
+    <p>or click to browse &nbsp;·&nbsp; <strong>HAR</strong> (DevTools F12) &nbsp;or&nbsp; <strong>NetLog JSON</strong> (chrome://net-export/)</p>
+    <button class="btn btn-primary" onclick="event.stopPropagation();document.getElementById('hf').click()">Browse File</button>
   </div>
-  <input type="file" id="hf" accept=".har" hidden onchange="onFilePick(event)">
+  <input type="file" id="hf" accept=".har,.json" hidden onchange="onFilePick(event)">
 
   <!-- BOOKMARKLET SETUP -->
   <div class="bm-box">
@@ -252,6 +252,26 @@ https://github.com/nodeca/pako/blob/main/LICENSE
       </ol>
     </div>
   </details>
+
+  <!-- MULTI-TAB / POPUP RECORDING -->
+  <details style="margin-bottom:16px">
+    <summary style="cursor:pointer;font-size:12.5px;color:var(--muted);padding:8px 12px;background:var(--surface);border:1px solid var(--border);border-radius:6px;user-select:none">
+      🪟 Multi-tab / Popup recording — use chrome://net-export/ when your app opens new windows or tabs
+    </summary>
+    <div class="instr" style="border-top:0;border-radius:0 0 10px 10px;margin-top:0">
+      <p style="font-size:12.5px;color:var(--muted);margin-bottom:10px">Developer Tools (F12) only records the tab it is attached to. If your app opens popup windows or new tabs, use Chrome/Edge's built-in all-tab capture instead. <strong>Note:</strong> NetLog does not capture POST request bodies — those requests will show a TODO comment in the generated script.</p>
+      <ol class="steps" style="margin-top:0">
+        <li>In the Chrome/Edge address bar, navigate to <code>chrome://net-export/</code></li>
+        <li>Click <strong>Start Logging to Disk</strong> — choose a save location and click Save</li>
+        <li>Open your application in a new tab (the net-export tab stays open in the background)</li>
+        <li>Use the <strong>▶ START Transaction</strong> and <strong>■ END Transaction</strong> bookmarklets as normal — they capture to NetLog from any tab</li>
+        <li>Complete your full user journey (including any popup windows or new tabs the app opens)</li>
+        <li>Switch back to the <code>chrome://net-export/</code> tab and click <strong>Stop Logging</strong></li>
+        <li>Drop the saved <code>.json</code> file into this tool just as you would a <code>.har</code> file</li>
+      </ol>
+      <div class="tip" style="margin-top:10px">POST bodies will show as TODO in generated scripts. Open DevTools alongside for the same session if you also need bodies — then use the <code>.har</code> from DevTools for a complete script.</div>
+    </div>
+  </details>
 </div>
 
 <!-- ═══════════════════════════════ MAIN PANEL ═══════════════════════════ -->
@@ -275,6 +295,13 @@ https://github.com/nodeca/pako/blob/main/LICENSE
     <button class="btn btn-muted btn-sm" onclick="openFmtModal(true)">⚙ Change Format</button>
     <button class="btn btn-muted btn-sm" id="btn-collapse-all" style="display:none" onclick="toggleCollapseAll()">⊖ Collapse All</button>
     <span id="stats"></span>
+  </div>
+
+  <!-- NetLog warning banner — visible only when loaded from chrome://net-export/ -->
+  <div id="netlog-banner" class="hidden" style="background:#fef3c7;border-bottom:2px solid #f59e0b;padding:6px 16px;font-size:12px;color:#78350f;display:flex;align-items:center;gap:8px;flex-shrink:0">
+    <span style="font-size:15px">⚠</span>
+    <span><strong>NetLog source (chrome://net-export/)</strong> — POST request bodies are not available in NetLog files.
+    GET/HEAD requests are fully reproduced. For POST bodies, check the TODO comments in the generated scripts and add them manually.</span>
   </div>
 
   <!-- SPLIT VIEW -->
@@ -419,6 +446,8 @@ const S = {
   scripts: {},
   format: 'webhttp',  // 'webhttp' | 'devweb' | 'both'
   pendingHar: null,   // parsed HAR JSON waiting for format confirmation
+  pendingNetLog: null,// parsed NetLog JSON waiting for format confirmation
+  isNetLogSource: false, // true when loaded from chrome://net-export/ NetLog
   domainFilter: {},   // hostname → true (include) | false (exclude)
   domainStats: {},    // hostname → {count, size}
   collapsed: {}       // txnName → true (collapsed) | false (expanded)
@@ -440,27 +469,193 @@ const FILE_NAMES = {ac:'Action.c',mj:'main.js',vi:'vuser_init.c',ve:'vuser_end.c
 // ═══════════════════════════════════════════════════════════════════════════
 // FILE LOADING
 // ═══════════════════════════════════════════════════════════════════════════
-function onFilePick(e){ const f=e.target.files[0]; if(f) readHAR(f); }
+function onFilePick(e){ const f=e.target.files[0]; if(f) readFile(f); }
 function onDrop(e){
   e.preventDefault();
   document.getElementById('dz').classList.remove('over');
   const f=e.dataTransfer.files[0];
-  if(f&&f.name.toLowerCase().endsWith('.har')) readHAR(f);
-  else alert('Please drop a .har file');
+  const nm=(f&&f.name.toLowerCase())||'';
+  if(f&&(nm.endsWith('.har')||nm.endsWith('.json'))) readFile(f);
+  else alert('Please drop a .har file or a chrome://net-export/ NetLog .json file');
 }
 function onDragOver(e){ e.preventDefault(); document.getElementById('dz').classList.add('over'); }
 function onDragLeave(){ document.getElementById('dz').classList.remove('over'); }
 
-function readHAR(file){
+function readFile(file){
   const r=new FileReader();
-  r.onload=e=>{
+  r.onload=ev=>{
     try{
-      S.domainFilter={}; // reset domain filter for new HAR
-      S.pendingHar=JSON.parse(e.target.result);
+      S.domainFilter={};
+      const parsed=JSON.parse(ev.target.result);
+      if(isNetLog(parsed)){
+        S.pendingNetLog=parsed;
+        S.pendingHar=null;
+      } else {
+        S.pendingHar=parsed;
+        S.pendingNetLog=null;
+      }
       openFmtModal(false);
-    }catch(err){ alert('Could not parse HAR file:\n'+err.message); }
+    }catch(err){ alert('Could not parse file:\n'+err.message); }
   };
   r.readAsText(file);
+}
+
+// ─── NetLog detection & parsing ────────────────────────────────────────────
+// chrome://net-export/ produces a JSON with a top-level "constants" key that
+// contains logEventTypes and a flat "events" array.
+function isNetLog(obj){
+  return obj && obj.constants && obj.constants.logEventTypes && Array.isArray(obj.events);
+}
+
+// Parse raw header string from NetLog: "HTTP/1.1 200 OK\r\nContent-Type: ..."
+// or request: "GET /path HTTP/1.1\r\nHost: ..."
+function parseNetLogHeaderBlock(raw){
+  if(!raw) return [];
+  const lines=raw.split(/\r?\n/);
+  const out=[];
+  for(let i=1;i<lines.length;i++){  // skip status/request line
+    const colon=lines[i].indexOf(':');
+    if(colon<1) continue;
+    out.push({name:lines[i].slice(0,colon).trim(), value:lines[i].slice(colon+1).trim()});
+  }
+  return out;
+}
+
+function parseNetLog(netlog){
+  const evTypes=netlog.constants.logEventTypes;      // name → number
+  // Build reverse map: number → name
+  const evNames={};
+  for(const [name,num] of Object.entries(evTypes)) evNames[num]=name;
+
+  const srcTypes=netlog.constants.logSourceType||netlog.constants.sourceType||{};
+  // URL_REQUEST source type is typically 1
+  const URL_REQUEST_TYPE = srcTypes['URL_REQUEST']??1;
+
+  // Group events by source.id
+  const sources={};
+  for(const ev of netlog.events){
+    const sid=ev.source&&ev.source.id;
+    if(sid===undefined) continue;
+    if(!sources[sid]) sources[sid]={type:ev.source.type, evs:[]};
+    sources[sid].evs.push(ev);
+  }
+
+  const tickOffset=parseInt(netlog.constants.timeTickOffset||netlog.constants.tickOffset||0);
+
+  const entries=[];
+  let id=0;
+
+  for(const [sid, src] of Object.entries(sources)){
+    if(src.type!==URL_REQUEST_TYPE) continue;
+
+    // Collect key events from this source
+    let url='', method='GET', reqHdrsRaw='', respHdrsRaw='', startTime=0;
+
+    for(const ev of src.evs){
+      const name=evNames[ev.type]||'';
+      const params=ev.params||{};
+
+      // URL + method
+      if(name==='URL_REQUEST_START_JOB'){
+        url=params.url||'';
+        method=(params.method||'GET').toUpperCase();
+        startTime=tickOffset+parseInt(ev.time||0);
+      }
+
+      // Request headers (raw block: "GET /path HTTP/1.1\r\nHeader: val\r\n...")
+      if(name.includes('SEND_REQUEST_HEADERS')||name==='HTTP_TRANSACTION_SEND_REQUEST'){
+        if(params.headers){
+          // headers may be array of "Name: Value" strings or a raw block string
+          if(Array.isArray(params.headers)){
+            reqHdrsRaw='_ARRAY_\r\n'+params.headers.join('\r\n');
+          } else {
+            reqHdrsRaw=params.headers;
+          }
+        }
+      }
+
+      // Response headers
+      if(name.includes('READ_RESPONSE_HEADERS')||name==='HTTP_TRANSACTION_READ_RESPONSE'){
+        if(params.headers){
+          if(Array.isArray(params.headers)){
+            respHdrsRaw='_ARRAY_\r\n'+params.headers.join('\r\n');
+          } else {
+            respHdrsRaw=params.headers;
+          }
+        }
+      }
+    }
+
+    if(!url) continue;  // not a real HTTP request
+
+    // Parse request headers
+    let reqHdrs=[];
+    if(reqHdrsRaw.startsWith('_ARRAY_\r\n')){
+      const lines=reqHdrsRaw.slice(9).split('\r\n');
+      for(const line of lines){
+        const colon=line.indexOf(':');
+        if(colon<1) continue;
+        reqHdrs.push({name:line.slice(0,colon).trim(), value:line.slice(colon+1).trim()});
+      }
+    } else {
+      reqHdrs=parseNetLogHeaderBlock(reqHdrsRaw);
+    }
+
+    // Parse response status from first response header line (e.g. "HTTP/1.1 200 OK")
+    let status=0, ct='';
+    let respHdrs=[];
+    if(respHdrsRaw.startsWith('_ARRAY_\r\n')){
+      const lines=respHdrsRaw.slice(9).split('\r\n');
+      // First line is status line
+      const statusMatch=(lines[0]||'').match(/\s(\d{3})\s/);
+      if(statusMatch) status=parseInt(statusMatch[1]);
+      for(let i=1;i<lines.length;i++){
+        const colon=lines[i].indexOf(':');
+        if(colon<1) continue;
+        respHdrs.push({name:lines[i].slice(0,colon).trim(), value:lines[i].slice(colon+1).trim()});
+      }
+    } else if(respHdrsRaw){
+      const statusMatch=respHdrsRaw.match(/\s(\d{3})\s/);
+      if(statusMatch) status=parseInt(statusMatch[1]);
+      respHdrs=parseNetLogHeaderBlock(respHdrsRaw);
+    }
+
+    // Build hdrsMap from request headers
+    const hdrsMap={};
+    for(const h of reqHdrs) hdrsMap[h.name.toLowerCase()]=h.value;
+
+    // Content-Type from response headers
+    for(const h of respHdrs){
+      if(h.name.toLowerCase()==='content-type'){
+        ct=h.value.split(';')[0].trim();
+        break;
+      }
+    }
+
+    entries.push({
+      id: 0,          // assigned after sort
+      _startTime: startTime, // used for sort only
+      url,
+      method,
+      status,
+      ct,
+      size: 0,        // NetLog doesn't reliably expose body size
+      dur: 0,         // NetLog tick resolution not reliable per-request
+      reqHdrs,
+      hdrsMap,
+      body: null,     // POST bodies not available in NetLog
+      referer: hdrsMap['referer']||'',
+      isMarker:false, markerType:null, txnName:null,
+      txn:null, filtered:false,
+      _fromNetLog: true
+    });
+  }
+
+  // Sort by request start time so requests are in chronological order
+  entries.sort((a,b)=>a._startTime-b._startTime);
+  // Assign sequential IDs after sort
+  entries.forEach((e,i)=>{ e.id=i+1; delete e._startTime; });
+  return entries;
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -468,6 +663,7 @@ function readHAR(file){
 // ═══════════════════════════════════════════════════════════════════════════
 function processHAR(har){
   S.entries=[]; S.txns=[]; S.colorMap={}; S.selIds.clear(); S.selMode=false;
+  S.isNetLogSource=false;
 
   const raw = har.log && har.log.entries ? har.log.entries : [];
   let id=0;
@@ -492,6 +688,32 @@ function processHAR(har){
       txn:null, filtered:false
     };
   });
+
+  detectMarkers();
+  buildDomainStats();
+  renderDomainPanel();
+  applyFilters();
+  buildScripts();
+  renderTable();
+  renderStats();
+  showScript();
+}
+
+function processNetLog(netlog){
+  S.entries=[]; S.txns=[]; S.colorMap={}; S.selIds.clear(); S.selMode=false;
+  S.isNetLogSource=true;
+
+  try {
+    S.entries=parseNetLog(netlog);
+  } catch(err){
+    alert('Could not parse NetLog file:\n'+err.message);
+    return;
+  }
+
+  if(S.entries.length===0){
+    alert('No HTTP requests found in this NetLog file.\n\nMake sure you captured traffic with chrome://net-export/ while browsing.');
+    return;
+  }
 
   detectMarkers();
   buildDomainStats();
@@ -718,6 +940,8 @@ function renderStats(){
   const tc=S.txns.length;
   document.getElementById('stats').textContent=
     `${shown}/${total} requests  |  ${tc} transaction${tc!==1?'s':''}`;
+  // Show/hide NetLog warning banner
+  document.getElementById('netlog-banner').classList.toggle('hidden', !S.isNetLogSource);
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -740,7 +964,59 @@ function genActionC(){
     nc[n]=1; return n;
   }
 
+  // ── Header analysis: determine universal (auto) vs per-request headers ────
+  // Headers handled by VuGen attributes or managed internally — never emit via web_add_header
+  const SKIP_HDR_AC=new Set([
+    // VuGen attributes handle these — never emit via web_add_header
+    'referer',          // → "Referer=" attribute in web_url / web_custom_request
+    'content-type',     // → "EncType=" attribute (or auto for web_submit_data ITEMDATA)
+    'content-length',   // computed automatically by VuGen engine
+    'host',             // always added by VuGen from the URL
+    'connection',       // HTTP keep-alive managed by VuGen internally
+    'keep-alive',       // same — connection persistence managed by VuGen
+    'transfer-encoding',// chunked encoding handled by VuGen
+    'upgrade-insecure-requests', // browser-only security hint
+    'expect',           // 100-continue — connection-level, not needed in scripts
+    'cookie','cookie2', // managed by VuGen cookie jar
+    'te','trailer',     // HTTP/1.1 connection-level
+    'via',              // proxy-inserted, irrelevant to load test
+    'dnt',              // Do Not Track — browser privacy hint
+    'accept-encoding',  // VuGen handles gzip/deflate/br decompression automatically
+    'priority',         // HTTP/2 urgency hint — not applicable to VuGen protocol layer
+    // Conditional / cache headers — not needed in scripted replay
+    'x-forwarded-for',
+    'if-none-match','if-modified-since','if-unmodified-since','if-match',
+    'cache-control','pragma',
+    // Browser client hints / fetch metadata — browser-generated, meaningless in load test
+    'sec-ch-ua','sec-ch-ua-mobile','sec-ch-ua-platform',
+    'sec-fetch-dest','sec-fetch-mode','sec-fetch-site','sec-fetch-user'
+  ]);
+  // Convert "accept-language" → "Accept-Language" — split on hyphen, capitalise first char, rejoin
+  function hdrTitleCase(n){ return n.split('-').map(w=>w?w[0].toUpperCase()+w.slice(1):w).join('-'); }
+  // Count header name+value occurrences across all visible (non-filtered, non-marker) entries
+  const visEntries=S.entries.filter(e=>!e.filtered&&!e.isMarker);
+  const hdrFreq={};
+  for(const ev of visEntries){
+    for(const h of (ev.reqHdrs||[])){
+      const k=h.name.toLowerCase();
+      if(SKIP_HDR_AC.has(k)||k.startsWith(':')) continue;
+      if(!hdrFreq[k]) hdrFreq[k]=new Map();
+      hdrFreq[k].set(h.value,(hdrFreq[k].get(h.value)||0)+1);
+    }
+  }
+  // Headers appearing with the same value in ≥80% of entries → web_add_auto_header (global)
+  const autoHdrs={};
+  const aThresh=Math.max(1,Math.ceil(visEntries.length*0.8));
+  for(const [k,valMap] of Object.entries(hdrFreq)){
+    for(const [v,cnt] of valMap){ if(cnt>=aThresh){ autoHdrs[k]=v; break; } }
+  }
+
   let o='Action()\n{\n\n\tweb_set_sockets_option("SSL_VERSION", "AUTO");\n\n';
+  // Global headers (same value on every request) — set once with web_add_auto_header
+  for(const [k,v] of Object.entries(autoHdrs)){
+    o+=`\tweb_add_auto_header("${hdrTitleCase(k)}", "${escJs(v)}");\n`;
+  }
+  if(Object.keys(autoHdrs).length) o+='\n';
   let snap=1;
 
   for(const e of S.entries){
@@ -760,6 +1036,14 @@ function genActionC(){
     const ref=e.referer||'';
     const sn=`t${snap++}.inf`;
 
+    // Per-request headers: not covered by global auto-headers and not skip-listed
+    for(const h of (e.reqHdrs||[])){
+      const k=h.name.toLowerCase();
+      if(SKIP_HDR_AC.has(k)||k.startsWith(':')) continue;
+      if(autoHdrs[k]!==undefined) continue;   // already set globally
+      o+=`\tweb_add_header("${hdrTitleCase(k)}", "${escJs(h.value)}");\n`;
+    }
+
     if(e.method==='GET'||e.method==='HEAD'){
       o+=`\tweb_url("${n}",\n\t\t"URL=${e.url}",\n\t\t"Resource=0",\n`;
       o+=`\t\t"RecContentType=${ct}",\n\t\t"Referer=${ref}",\n`;
@@ -771,6 +1055,9 @@ function genActionC(){
         encType=(e.body.mimeType||encType).split(';')[0].trim();
         rawBodyText=e.body.text||'';
       }
+      // Detect content-type from request headers if body.mimeType not set
+      const ctHdr=(e.hdrsMap['content-type']||'').split(';')[0].trim();
+      if(!e.body && ctHdr) encType=ctHdr;
       // Always use BodyBinary= to match VuGen native recording behavior.
       // Body= causes VuGen attribute parser errors with JSON braces, colons, and other special chars.
       const isBinary = true;
@@ -778,6 +1065,10 @@ function genActionC(){
         ? (isBinary ? escBodyBinary(rawBodyText)
                     : rawBodyText.replace(/\\/g,'\\\\').replace(/"/g,'\\"').replace(/\r?\n/g,'\\n').replace(/\t/g,'\\t'))
         : '';
+      // NetLog source: POST body was not captured — emit TODO comment
+      if(e._fromNetLog && !body){
+        o+=`\t// TODO: POST body not available in NetLog — add BodyBinary= with your recorded request body\n`;
+      }
       o+=`\tweb_custom_request("${n}",\n\t\t"URL=${e.url}",\n\t\t"Method=${e.method}",\n`;
       o+=`\t\t"Resource=0",\n\t\t"RecContentType=${ct}",\n`;
       o+=`\t\t"Referer=${ref}",\n\t\t"Snapshot=${sn}",\n\t\t"Mode=HTML",\n`;
@@ -944,6 +1235,8 @@ function genMainJS(){
     }
     if(e.body&&e.body.text){
       o+=`        "body": \`${escTpl(e.body.text)}\`,\n`;
+    } else if(e._fromNetLog && e.method!=='GET' && e.method!=='HEAD'){
+      o+=`        // TODO: POST body not available in NetLog — add "body" property with your recorded request body\n`;
     }
     o+=`    }).sendSync();\n`;
     o+=`    load.log(\`${rn} - Status: \${${varN}.status}\`, load.LogLevel.info);\n\n`;
@@ -1544,7 +1837,11 @@ function closeFmtModal(){
 
 function confirmFmt(){
   closeFmtModal();
-  processHAR(S.pendingHar);
+  if(S.pendingNetLog){
+    processNetLog(S.pendingNetLog);
+  } else {
+    processHAR(S.pendingHar);
+  }
   document.getElementById('welcome').classList.add('hidden');
   document.getElementById('main').classList.remove('hidden');
   applyFmtUI();
@@ -1589,7 +1886,7 @@ function showWelcome(){
 }
 function clearAll(){
   if(S.entries.length>0 && !confirm('Clear all data?')) return;
-  S.entries=[]; S.txns=[]; S.colorMap={}; S.selIds.clear(); S.scripts={}; S.pendingHar=null; S.domainFilter={}; S.domainStats={};
+  S.entries=[]; S.txns=[]; S.colorMap={}; S.selIds.clear(); S.scripts={}; S.pendingHar=null; S.pendingNetLog=null; S.isNetLogSource=false; S.domainFilter={}; S.domainStats={};
   document.getElementById('tbody').innerHTML='';
   document.getElementById('stats').textContent='';
   document.getElementById('code-body').textContent='// Load a HAR file to generate scripts';

@@ -150,24 +150,24 @@ https://github.com/nodeca/pako/blob/main/LICENSE
 <div id="ph-upload" class="phase active">
   <div class="hero">
     <h1><span>VuGen</span> Script Studio <span class="badge">Correlation Engine</span></h1>
-    <p>Upload 1 HAR for pattern-based correlation, or 2 HARs for deterministic diff-based correlation.</p>
+    <p>Upload 1 HAR or NetLog for pattern-based correlation, or 2 recordings for deterministic diff-based correlation.</p>
   </div>
 
   <div class="har-row">
     <!-- HAR 1 -->
     <div class="drop-zone" id="dz1" ondrop="onDrop(event,1)" ondragover="onDragOver(event,1)" ondragleave="onDragLeave(1)">
-      <input type="file" accept=".har" onchange="onFilePick(event,1)">
+      <input type="file" accept=".har,.json" onchange="onFilePick(event,1)">
       <div class="dz-icon">📁</div>
-      <div class="dz-title" id="dz1-title">HAR File 1 (Required)</div>
-      <div class="dz-sub" id="dz1-sub">Drag & drop or click to browse</div>
+      <div class="dz-title" id="dz1-title">Recording 1 — HAR or NetLog (Required)</div>
+      <div class="dz-sub" id="dz1-sub">Drop .har (DevTools) or .json (chrome://net-export/)</div>
       <div class="dz-name" id="dz1-name" style="display:none"></div>
     </div>
 
     <!-- HAR 2 -->
     <div class="drop-zone" id="dz2" ondrop="onDrop(event,2)" ondragover="onDragOver(event,2)" ondragleave="onDragLeave(2)">
-      <input type="file" accept=".har" onchange="onFilePick(event,2)">
+      <input type="file" accept=".har,.json" onchange="onFilePick(event,2)">
       <div class="dz-icon">📁</div>
-      <div class="dz-title" id="dz2-title">HAR File 2 (Optional)</div>
+      <div class="dz-title" id="dz2-title">Recording 2 — HAR or NetLog (Optional)</div>
       <div class="dz-sub" id="dz2-sub">Second run for diff-based correlation</div>
       <div class="dz-name" id="dz2-name" style="display:none"></div>
       <div class="dz-optional">Leave empty for pattern-based mode</div>
@@ -246,6 +246,7 @@ https://github.com/nodeca/pako/blob/main/LICENSE
 // ═══════════════════════════════════════════════════════════════════════════
 const S = {
   har1: null, har2: null,
+  isNetLog1: false, isNetLog2: false, // true when slot was loaded from chrome://net-export/
   entries1: [], entries2: [],
   txns: [],          // [{name}] — from START marker detection
   correlations: [],
@@ -304,6 +305,9 @@ const CSRF_HEADER_NAMES = new Set([
   'x-csrf-token','x-xsrf-token','x-csrftoken','csrf-token',
   '__requestverificationtoken','x-request-token'
 ]);
+// Broad pattern for any CSRF-like header name — covers custom app headers such as
+// x-xsrf-header, x-csrf-header, x-anti-forgery-token, x-request-verification, etc.
+const CSRF_HEADER_PATTERN = /csrf|xsrf|antiforg|request.?verif/i;
 const AUTH_HEADER_NAMES = new Set([
   'authorization','x-auth-token','x-api-key','x-access-token','x-token'
 ]);
@@ -341,34 +345,37 @@ function setFmt(f){
 // ═══════════════════════════════════════════════════════════════════════════
 // FILE LOADING
 // ═══════════════════════════════════════════════════════════════════════════
-function onFilePick(e, slot){ const f=e.target.files[0]; if(f) loadHar(f, slot); }
+function onFilePick(e, slot){ const f=e.target.files[0]; if(f) loadFile(f, slot); }
 function onDrop(e, slot){
   e.preventDefault();
   document.getElementById('dz'+slot).classList.remove('over');
   const f=e.dataTransfer.files[0];
-  if(f&&f.name.toLowerCase().endsWith('.har')) loadHar(f, slot);
-  else alert('Please drop a .har file');
+  const nm=(f&&f.name.toLowerCase())||'';
+  if(f&&(nm.endsWith('.har')||nm.endsWith('.json'))) loadFile(f, slot);
+  else alert('Please drop a .har file or a chrome://net-export/ NetLog .json file');
 }
 function onDragOver(e, slot){ e.preventDefault(); document.getElementById('dz'+slot).classList.add('over'); }
 function onDragLeave(slot){ document.getElementById('dz'+slot).classList.remove('over'); }
 
-function loadHar(file, slot){
+function loadFile(file, slot){
   const r=new FileReader();
   r.onload=ev=>{
     try{
-      const har=JSON.parse(ev.target.result);
-      if(slot===1){ S.har1=har; markLoaded(1, file.name); }
-      else{ S.har2=har; markLoaded(2, file.name); }
+      const parsed=JSON.parse(ev.target.result);
+      const netlog=isNetLog(parsed);
+      if(slot===1){ S.har1=parsed; S.isNetLog1=netlog; markLoaded(1, file.name, netlog); }
+      else{ S.har2=parsed; S.isNetLog2=netlog; markLoaded(2, file.name, netlog); }
       updateUploadState();
-    }catch(err){ alert('Could not parse HAR file:\n'+err.message); }
+    }catch(err){ alert('Could not parse file:\n'+err.message); }
   };
   r.readAsText(file);
 }
 
-function markLoaded(slot, filename){
+function markLoaded(slot, filename, netlog){
   const dz=document.getElementById('dz'+slot);
   dz.classList.add('loaded');
-  document.getElementById('dz'+slot+'-name').textContent='✓ '+filename;
+  const tag=netlog?' [NetLog]':'';
+  document.getElementById('dz'+slot+'-name').textContent='✓ '+filename+tag;
   document.getElementById('dz'+slot+'-name').style.display='block';
   document.getElementById('dz'+slot+'-sub').style.display='none';
 }
@@ -420,6 +427,133 @@ function parseHar(har){
       isMarker:false, markerType:null, txnName:null, txn:null
     };
   });
+}
+
+// ─── NetLog detection & parsing ────────────────────────────────────────────
+// chrome://net-export/ produces JSON with top-level "constants" + flat "events" array.
+function isNetLog(obj){
+  return !!(obj && obj.constants && obj.constants.logEventTypes && Array.isArray(obj.events));
+}
+
+function parseNetLogHeaderBlock(raw){
+  if(!raw) return [];
+  const lines=raw.split(/\r?\n/);
+  const out=[];
+  for(let i=1;i<lines.length;i++){   // skip status/request line
+    const colon=lines[i].indexOf(':');
+    if(colon<1) continue;
+    out.push({name:lines[i].slice(0,colon).trim(), value:lines[i].slice(colon+1).trim()});
+  }
+  return out;
+}
+
+// Returns entries in Studio shape (same as parseHar), with respBody='' and _fromNetLog=true.
+// Response bodies are unavailable in NetLog — correlation engine will use pattern mode only.
+function parseNetLog(netlog){
+  const evTypes=netlog.constants.logEventTypes;  // name → number
+  const evNames={};
+  for(const [name,num] of Object.entries(evTypes)) evNames[num]=name;
+
+  const srcTypes=netlog.constants.logSourceType||netlog.constants.sourceType||{};
+  const URL_REQUEST_TYPE=srcTypes['URL_REQUEST']??1;
+
+  const sources={};
+  for(const ev of netlog.events){
+    const sid=ev.source&&ev.source.id;
+    if(sid===undefined) continue;
+    if(!sources[sid]) sources[sid]={type:ev.source.type, evs:[]};
+    sources[sid].evs.push(ev);
+  }
+
+  const tickOffset=parseInt(netlog.constants.timeTickOffset||netlog.constants.tickOffset||0);
+  const entries=[];
+
+  for(const src of Object.values(sources)){
+    if(src.type!==URL_REQUEST_TYPE) continue;
+
+    let url='', method='GET', reqHdrsRaw='', respHdrsRaw='', startTime=0;
+
+    for(const ev of src.evs){
+      const name=evNames[ev.type]||'';
+      const params=ev.params||{};
+
+      if(name==='URL_REQUEST_START_JOB'){
+        url=params.url||'';
+        method=(params.method||'GET').toUpperCase();
+        startTime=tickOffset+parseInt(ev.time||0);
+      }
+      if(name.includes('SEND_REQUEST_HEADERS')||name==='HTTP_TRANSACTION_SEND_REQUEST'){
+        if(params.headers){
+          reqHdrsRaw=Array.isArray(params.headers)
+            ?'_ARRAY_\r\n'+params.headers.join('\r\n')
+            :params.headers;
+        }
+      }
+      if(name.includes('READ_RESPONSE_HEADERS')||name==='HTTP_TRANSACTION_READ_RESPONSE'){
+        if(params.headers){
+          respHdrsRaw=Array.isArray(params.headers)
+            ?'_ARRAY_\r\n'+params.headers.join('\r\n')
+            :params.headers;
+        }
+      }
+    }
+
+    if(!url) continue;
+
+    // Parse request headers
+    let reqHdrs=[];
+    if(reqHdrsRaw.startsWith('_ARRAY_\r\n')){
+      for(const line of reqHdrsRaw.slice(9).split('\r\n')){
+        const c=line.indexOf(':'); if(c<1) continue;
+        reqHdrs.push({name:line.slice(0,c).trim(),value:line.slice(c+1).trim()});
+      }
+    } else {
+      reqHdrs=parseNetLogHeaderBlock(reqHdrsRaw);
+    }
+
+    const hdrsMap={};
+    for(const h of reqHdrs) hdrsMap[h.name.toLowerCase()]=h.value;
+
+    // Parse response headers
+    let status=0, ct='';
+    const respHdrsMap={};
+    let respHdrsList=[];
+    if(respHdrsRaw.startsWith('_ARRAY_\r\n')){
+      const lines=respHdrsRaw.slice(9).split('\r\n');
+      const sm=(lines[0]||'').match(/\s(\d{3})\s/); if(sm) status=parseInt(sm[1]);
+      for(let i=1;i<lines.length;i++){
+        const c=lines[i].indexOf(':'); if(c<1) continue;
+        respHdrsList.push({name:lines[i].slice(0,c).trim(),value:lines[i].slice(c+1).trim()});
+      }
+    } else if(respHdrsRaw){
+      const sm=respHdrsRaw.match(/\s(\d{3})\s/); if(sm) status=parseInt(sm[1]);
+      respHdrsList=parseNetLogHeaderBlock(respHdrsRaw);
+    }
+    for(const h of respHdrsList){
+      const k=h.name.toLowerCase();
+      respHdrsMap[k]=h.value;
+      if(k==='content-type') ct=h.value.split(';')[0].trim();
+    }
+
+    entries.push({
+      id: 0,
+      _startTime: startTime,
+      url, method, status, ct,
+      reqHdrs, hdrsMap,
+      body: null,      // POST bodies not available in NetLog
+      respCt: ct,
+      respBody: '',    // response bodies not available in NetLog
+      respHdrsMap,
+      respCookies: [], // Set-Cookie requires body parsing not supported here
+      filtered: false,
+      isMarker: false, markerType: null, txnName: null, txn: null,
+      _fromNetLog: true
+    });
+  }
+
+  entries.sort((a,b)=>a._startTime-b._startTime);
+  entries.forEach((e,i)=>{ e.id=i+1; delete e._startTime; });
+  return entries;
 }
 
 function applyFilters(entries){
@@ -697,10 +831,10 @@ function singleHarCorrelate(entries){
       }
     }
 
-    // Check CSRF headers
+    // Check CSRF headers — known set OR broad pattern (catches x-xsrf-header, x-csrf-header, etc.)
     for(const h of e.reqHdrs){
       const k=h.name.toLowerCase();
-      if(!CSRF_HEADER_NAMES.has(k)) continue;
+      if(!CSRF_HEADER_NAMES.has(k) && !CSRF_HEADER_PATTERN.test(k)) continue;
       const v=h.value;
       if(!v||v.length<4) continue;
       const key=v.substring(0,16);
@@ -710,6 +844,23 @@ function singleHarCorrelate(entries){
       if(src){
         const name=genParamName('CsrfToken',counter);
         addUsage(corrs,name,src,{reqIdx:idx,location:'header',key:h.name,originalValue:v,prefix:''});
+      } else {
+        // Fallback: CSRF tokens are often read from a cookie by JS and sent as a header.
+        // Check the Cookie request header of this same request for a cookie value that matches.
+        const cookieHdr=e.hdrsMap['cookie']||'';
+        let matchCkName=null;
+        cookieHdr.split(';').forEach(ck=>{
+          const eq=ck.indexOf('=');
+          if(eq<1) return;
+          if(ck.substring(eq+1).trim()===v) matchCkName=ck.substring(0,eq).trim();
+        });
+        if(matchCkName){
+          // Use the earliest non-marker response as the extraction source
+          let srcIdx=0; for(let i=0;i<idx;i++){if(!entries[i].filtered&&!entries[i].isMarker){srcIdx=i;break;}}
+          const name=genParamName('CsrfToken',counter);
+          addUsage(corrs,name,{type:'cookie',config:{cookieName:matchCkName},idx:srcIdx},
+            {reqIdx:idx,location:'header',key:h.name,originalValue:v,prefix:''});
+        }
       }
     }
 
@@ -834,7 +985,7 @@ function twoHarCorrelate(entries1, entries2){
       if(k==='authorization'){
         if(v1.startsWith('Bearer ')){ prefix='Bearer '; v1=v1.substring(7); v2=v2?.substring(7)||v2; }
         hint='AccessToken';
-      } else if(CSRF_HEADER_NAMES.has(k)){ hint='CsrfToken'; }
+      } else if(CSRF_HEADER_NAMES.has(k)||CSRF_HEADER_PATTERN.test(k)){ hint='CsrfToken'; }
       if(isDynamic(v1))
         changedVals.push({reqIdx:idx1,reqIdx2:idx2,location:'header',key:h1.name,value1:v1,value2:v2,hint,prefix,originalHeaderValue:h1.value});
     }
@@ -964,6 +1115,36 @@ function twoHarCorrelate(entries1, entries2){
         corrs.push({name,sourceIdx:sessionSrcIdx,extractorType:'cookie',
           extractorConfig:{cookieName},usages});
         continue;
+      }
+
+      // ── FALLBACK 2c: CSRF/XSRF request header → matching request cookie ──────
+      // CSRF tokens sent as request headers are almost always derived from a server-set
+      // cookie that JavaScript reads and echoes as a header (double-submit cookie pattern).
+      // Even when Set-Cookie is absent from HAR (cached response), the Cookie request
+      // header of the same request will contain the token — use that to find the cookie name.
+      const isCsrfHdr=info.usages.some(u=>u.location==='header')&&
+        (CSRF_HEADER_NAMES.has((info.hint||'').toLowerCase())||CSRF_HEADER_PATTERN.test(info.hint||''));
+      if(isCsrfHdr){
+        const firstReq=entries1[firstUsageIdx];
+        const cookieHdr=(firstReq?.hdrsMap?.['cookie'])||'';
+        let matchCkName=null;
+        cookieHdr.split(';').forEach(ck=>{
+          const eq=ck.indexOf('=');
+          if(eq<1) return;
+          if(ck.substring(eq+1).trim()===value1) matchCkName=ck.substring(0,eq).trim();
+        });
+        if(matchCkName){
+          let srcIdx=0;
+          for(let i=0;i<firstUsageIdx;i++){
+            if(!entries1[i].filtered&&!entries1[i].isMarker){srcIdx=i;break;}
+          }
+          const name=genParamName('CsrfToken',counter);
+          const usages=info.usages.map(u=>({reqIdx:u.reqIdx,location:u.location,key:u.key,
+            originalValue:u.originalHeaderValue||u.value1,tokenValue:u.value1,prefix:u.prefix||''}));
+          corrs.push({name,sourceIdx:srcIdx,extractorType:'cookie',
+            extractorConfig:{cookieName:matchCkName},usages});
+          continue;
+        }
       }
 
       // ── FALLBACK 3: Record as unresolved candidate ─────────────────────────
@@ -1343,7 +1524,24 @@ function genMainJS(entries, correlations){
   o+='    // Default request options\n';
   o+='    load.WebRequest.defaults.returnBody = false;\n';
   o+='    load.WebRequest.defaults.headers = {\n';
-  for(const [k,v] of Object.entries(defHdrs)) o+=`        "${escJs(k)}": "${escJs(v)}",\n`;
+  for(const [k,v] of Object.entries(defHdrs)){
+    // Substitute any correlated value embedded inside a default header string
+    let dv=v; let isDynDef=false;
+    for(const c of correlations){
+      for(const u of c.usages){
+        const rawVal=u.tokenValue||u.originalValue;
+        if(rawVal&&dv.includes(rawVal)){
+          dv=dv.split(rawVal).join(`\x00DYNSTART_${c.name}\x00DYNEND`); isDynDef=true;
+        }
+      }
+    }
+    if(isDynDef){
+      const expr=escTpl(dv).replace(/\x00DYNSTART_([^]+?)\x00DYNEND/g,'${load.global.$1}');
+      o+=`        "${escJs(k)}": \`${expr}\`,\n`;
+    } else {
+      o+=`        "${escJs(k)}": "${escJs(v)}",\n`;
+    }
+  }
   o+='    };\n\n';
 
   // Collect transaction names (from markers, or fallback to single)
@@ -1418,6 +1616,24 @@ function genMainJS(entries, correlations){
         extraHdrs[k]={dynamic:true,expr};
       } else if(defHdrs[k]===undefined||defHdrs[k]!==v){
         extraHdrs[k]={dynamic:false,value:v};
+      }
+    }
+    // Substitute correlated values embedded inside non-correlation header strings
+    // e.g. jsessionid in Referer URL, or a token embedded mid-string in a custom header
+    for(const [k,hh] of Object.entries(extraHdrs)){
+      if(hh.dynamic) continue; // already a full correlation replacement
+      let v=hh.value; let changed=false;
+      for(const c of correlations){
+        for(const u of c.usages){
+          const rawVal=u.tokenValue||u.originalValue;
+          if(rawVal&&v.includes(rawVal)){
+            v=v.split(rawVal).join(`\x00DYNSTART_${c.name}\x00DYNEND`); changed=true;
+          }
+        }
+      }
+      if(changed){
+        const expr=escTpl(v).replace(/\x00DYNSTART_([^]+?)\x00DYNEND/g,'${load.global.$1}');
+        extraHdrs[k]={dynamic:true,expr};
       }
     }
 
@@ -1540,6 +1756,10 @@ function genMainJS(entries, correlations){
       }
       o+=`        },\n`;
     }
+    // NetLog source: body was not captured — emit TODO comment
+    if(e._fromNetLog && bodyText===null && e.method!=='GET' && e.method!=='HEAD'){
+      o+=`        // TODO: POST body not available in NetLog — add "body" property with your recorded request body\n`;
+    }
     if(bodyText!==null){
       const bodyMime=(e.body&&e.body.mimeType||'').split(';')[0].trim();
       const isFormBody=bodyMime==='application/x-www-form-urlencoded'&&bodyText.indexOf('=')>=0;
@@ -1651,7 +1871,59 @@ function genActionC(entries, correlations){
     }
   }
 
+  // ── Header analysis: determine universal (auto) vs per-request headers ────
+  // Headers handled by VuGen attributes or managed internally — never emit via web_add_header
+  const SKIP_HDR_AC=new Set([
+    // VuGen attributes handle these — never emit via web_add_header
+    'referer',          // → "Referer=" attribute in web_url / web_custom_request
+    'content-type',     // → "EncType=" attribute (or auto for web_submit_data ITEMDATA)
+    'content-length',   // computed automatically by VuGen engine
+    'host',             // always added by VuGen from the URL
+    'connection',       // HTTP keep-alive managed by VuGen internally
+    'keep-alive',       // same — connection persistence managed by VuGen
+    'transfer-encoding',// chunked encoding handled by VuGen
+    'upgrade-insecure-requests', // browser-only security hint
+    'expect',           // 100-continue — connection-level, not needed in scripts
+    'cookie','cookie2', // managed by VuGen cookie jar
+    'te','trailer',     // HTTP/1.1 connection-level
+    'via',              // proxy-inserted, irrelevant to load test
+    'dnt',              // Do Not Track — browser privacy hint
+    'accept-encoding',  // VuGen handles gzip/deflate/br decompression automatically
+    'priority',         // HTTP/2 urgency hint — not applicable to VuGen protocol layer
+    // Conditional / cache headers — not needed in scripted replay
+    'x-forwarded-for',
+    'if-none-match','if-modified-since','if-unmodified-since','if-match',
+    'cache-control','pragma',
+    // Browser client hints / fetch metadata — browser-generated, meaningless in load test
+    'sec-ch-ua','sec-ch-ua-mobile','sec-ch-ua-platform',
+    'sec-fetch-dest','sec-fetch-mode','sec-fetch-site','sec-fetch-user'
+  ]);
+  // Convert "accept-language" → "Accept-Language" — split on hyphen, capitalise first char, rejoin
+  function hdrTitleCase(n){ return n.split('-').map(w=>w?w[0].toUpperCase()+w.slice(1):w).join('-'); }
+  // Count header name+value occurrences across all visible (non-filtered, non-marker) entries
+  const visEntries=entries.filter(e=>!e.filtered&&!e.isMarker);
+  const hdrFreq={};
+  for(const ev of visEntries){
+    for(const h of (ev.reqHdrs||[])){
+      const k=h.name.toLowerCase();
+      if(SKIP_HDR_AC.has(k)||k.startsWith(':')) continue;
+      if(!hdrFreq[k]) hdrFreq[k]=new Map();
+      hdrFreq[k].set(h.value,(hdrFreq[k].get(h.value)||0)+1);
+    }
+  }
+  // Headers appearing with the same value in ≥80% of entries → web_add_auto_header (global)
+  const autoHdrs={};
+  const aThresh=Math.max(1,Math.ceil(visEntries.length*0.8));
+  for(const [k,valMap] of Object.entries(hdrFreq)){
+    for(const [v,cnt] of valMap){ if(cnt>=aThresh){ autoHdrs[k]=v; break; } }
+  }
+
   let o='Action()\n{\n\n\tweb_set_sockets_option("SSL_VERSION", "AUTO");\n\n';
+  // Global headers (same value on every request) — set once with web_add_auto_header
+  for(const [k,v] of Object.entries(autoHdrs)){
+    o+=`\tweb_add_auto_header("${hdrTitleCase(k)}", "${escJs(v)}");\n`;
+  }
+  if(Object.keys(autoHdrs).length) o+='\n';
   let snap=1;
   const hasMarkers=entries.some(e=>e.isMarker);
 
@@ -1740,6 +2012,15 @@ function genActionC(entries, correlations){
       const replVal=u.prefix?`${u.prefix}{${u.name}}`:`{${u.name}}`;
       o+=`\tweb_add_header("${u.key}", "${replVal}");\n`;
     }
+    // Per-request headers: not covered by global auto-headers, not skip-listed, not already a correlation
+    const corrHdrKeys=new Set(hdrUsages.map(u=>u.key.toLowerCase()));
+    for(const h of (e.reqHdrs||[])){
+      const k=h.name.toLowerCase();
+      if(SKIP_HDR_AC.has(k)||k.startsWith(':')) continue;
+      if(autoHdrs[k]!==undefined) continue;        // already set globally
+      if(corrHdrKeys.has(k)) continue;             // already emitted as correlation
+      o+=`\tweb_add_header("${hdrTitleCase(k)}", "${escJs(h.value)}");\n`;
+    }
 
     if(e.method==='GET'||e.method==='HEAD'){
       o+=`\tweb_url("${n}",\n\t\t"URL=${urlOut}",\n\t\t"Resource=0",\n`;
@@ -1751,6 +2032,13 @@ function genActionC(entries, correlations){
       if(e.body){
         encType=(e.body.mimeType||encType).split(';')[0].trim();
         rawBodyText=e.body.text||'';
+      }
+      // Detect content-type from request headers if body.mimeType not set
+      const ctHdr=(e.hdrsMap['content-type']||'').split(';')[0].trim();
+      if(!e.body && ctHdr) encType=ctHdr;
+      // NetLog source: POST body was not captured — emit TODO comment
+      if(e._fromNetLog && !rawBodyText){
+        o+=`\t// TODO: POST body not available in NetLog — add BodyBinary= with your recorded request body\n`;
       }
       const bodyUsages=reqUsages.filter(u=>u.location==='body_json'||u.location==='body_form');
 
@@ -2264,7 +2552,7 @@ function renderCorrelations(){
   // HAR quality warning
   if(S.harWarning){
     html+=`<div style="background:var(--warn-bg);border:1px solid var(--warn);border-radius:6px;padding:8px 12px;margin-bottom:10px;font-size:12px;color:var(--warn)">
-      <b>⚠ Truncated HAR:</b> ${esc(S.harWarning)}
+      <b>⚠ Recording Warning:</b> ${esc(S.harWarning)}
     </div>`;
   }
 
@@ -2389,24 +2677,37 @@ async function analyze(){
   await new Promise(r=>setTimeout(r,50));
 
   try{
-    setMsg('Parsing HAR files...','Reading request/response data');
+    setMsg('Parsing recording files...','Reading request/response data');
     await tick();
 
-    S.entries1=parseHar(S.har1);
-    if(S.har2) S.entries2=parseHar(S.har2);
+    S.entries1=S.isNetLog1 ? parseNetLog(S.har1) : parseHar(S.har1);
+    if(S.har2) S.entries2=S.isNetLog2 ? parseNetLog(S.har2) : parseHar(S.har2);
 
-    // Detect truncated response bodies (Chrome often omits body when served from cache)
+    // Quality / source warnings
     S.candidates=[];
     S.harWarning='';
-    const rawEntries=S.har1.log.entries;
-    const truncated=rawEntries.filter(e=>{
-      const size=e.response.content&&e.response.content.size>0?e.response.content.size:0;
-      const body=e.response.content&&e.response.content.text?e.response.content.text.length:0;
-      return size>0&&body===0;
-    }).length;
-    if(truncated>0&&truncated/rawEntries.length>0.1){
-      S.harWarning=`${truncated} of ${rawEntries.length} responses have empty bodies (served from browser cache). `+
-        `Dynamic values in those responses cannot be traced. Re-record with DevTools "Disable cache" checked (⚙ → Disable cache).`;
+
+    // NetLog warning — response bodies unavailable, correlation will be pattern-only
+    const netlogSlots=[S.isNetLog1&&'Recording 1',S.isNetLog2&&S.har2&&'Recording 2'].filter(Boolean);
+    if(netlogSlots.length){
+      S.harWarning=`NetLog source (${netlogSlots.join(' & ')}): POST request bodies and response bodies are not `+
+        `available in NetLog files. Correlation engine will use pattern-based detection only. `+
+        `GET requests are fully reproduced. POST bodies will show TODO comments in generated scripts.`;
+    }
+
+    // Detect truncated response bodies in HAR files (Chrome omits body when served from cache)
+    if(!S.isNetLog1){
+      const rawEntries=S.har1.log.entries;
+      const truncated=rawEntries.filter(e=>{
+        const size=e.response.content&&e.response.content.size>0?e.response.content.size:0;
+        const body=e.response.content&&e.response.content.text?e.response.content.text.length:0;
+        return size>0&&body===0;
+      }).length;
+      if(truncated>0&&truncated/rawEntries.length>0.1){
+        const cacheWarn=`${truncated} of ${rawEntries.length} responses have empty bodies (served from browser cache). `+
+          `Dynamic values in those responses cannot be traced. Re-record with DevTools "Disable cache" checked (⚙ → Disable cache).`;
+        S.harWarning=S.harWarning?(S.harWarning+' '+cacheWarn):cacheWarn;
+      }
     }
 
     setMsg('Detecting transactions...','Finding START/END markers in HAR');
@@ -2424,6 +2725,23 @@ async function analyze(){
 
     if(S.mode==='two'&&S.entries2.length){
       S.correlations=twoHarCorrelate(S.entries1,S.entries2);
+      // Warn if very few values changed between the two recordings — likely the same browser
+      // session was reused (session tokens don't change when you stay logged in).
+      const matchedCount=S.entries1.filter(e=>!e.filtered&&!e.isMarker).length;
+      if(S.correlations.length===0&&matchedCount>5){
+        const sameSessionWarning='No dynamic values were detected between the two recordings. '+
+          'This usually means both recordings share the same browser session — session tokens, '+
+          'CSRF tokens, and cookies did not change. '+
+          'For Recording 2, use an Incognito/Private window (Ctrl+Shift+N) or log out fully '+
+          'and clear cookies before re-recording, then regenerate.';
+        S.harWarning=S.harWarning?(S.harWarning+' '+sameSessionWarning):sameSessionWarning;
+      } else if(S.correlations.length<=2&&matchedCount>10){
+        const fewCorrWarning='Only '+S.correlations.length+' dynamic value(s) detected. '+
+          'If you expected more correlations, ensure Recording 2 used a fresh session '+
+          '(Incognito window or full logout + cookie clear) — reusing the same session '+
+          'means tokens do not change and the diff finds nothing.';
+        S.harWarning=S.harWarning?(S.harWarning+' '+fewCorrWarning):fewCorrWarning;
+      }
     } else {
       S.correlations=singleHarCorrelate(S.entries1);
     }

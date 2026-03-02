@@ -168,6 +168,23 @@ After completing all transactions:
 
 ---
 
+### ⚠️ What if my application opens a popup window or new tab?
+
+Developer Tools (F12) only captures traffic from the tab it is attached to. If your user journey involves a popup window or new browser tab, use **`chrome://net-export/`** — it captures all tabs simultaneously and both tools read NetLog `.json` files directly (no conversion needed).
+
+**Using chrome://net-export/:**
+1. Open a new tab and navigate to `chrome://net-export/`
+2. Click **"Start Logging to Disk"** → save the file
+3. Open your application in **another new tab** (the net-export tab stays running in the background)
+4. Use the **▶ START** / **■ END** bookmarklets as normal — they are captured from any tab
+5. Complete your entire journey including all popups and new tabs
+6. Return to `chrome://net-export/` and click **"Stop Logging"**
+7. Drop the `.json` file into the tool — it works the same as a `.har` file
+
+> **Note:** NetLog does not include POST request bodies. The generated script will show `// TODO: POST body not available in NetLog` for those requests — add the body content manually using your application's API documentation or by checking DevTools in a parallel session.
+
+---
+
 ## A4. Generating Your Script
 
 ### Step 6 — Load the HAR File into the Tool
