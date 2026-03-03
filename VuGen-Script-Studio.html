@@ -1053,7 +1053,7 @@ function addUsage(corrs, name, src, usage){
 // TWO-HAR CORRELATION (Diff-based)
 // ═══════════════════════════════════════════════════════════════════════════
 function twoHarCorrelate(entries1, entries2){
-  const corrs=[];
+  let corrs=[];
   const counter={};
   const seen=new Set();
 
