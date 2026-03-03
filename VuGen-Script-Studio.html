@@ -1753,9 +1753,10 @@ function genMainJS(entries, correlations){
   // ── initialize ────────────────────────────────────────────────────────────
   o+='load.initialize("init", async function() {\n';
   o+='    load.log("🚀 Initializing Vuser " + load.config.user.userId, load.LogLevel.info);\n\n';
-  if(correlations.length>0){
+  const nonGenCorrs=correlations.filter(c=>c.extractorType!=='generate');
+  if(nonGenCorrs.length>0){
     o+='    // Correlated dynamic values — extracted at runtime\n';
-    for(const c of correlations) o+=`    load.global.${c.name} = null;\n`;
+    for(const c of nonGenCorrs) o+=`    load.global.${c.name} = null;\n`;
     o+='\n';
   }
   if(S.candidates&&S.candidates.length>0){
@@ -1814,27 +1815,26 @@ function genMainJS(entries, correlations){
     }
   }
   o+='    };\n\n';
-  // Generate dynamic token values ONCE per iteration, assign to defaults.headers.
-  // All subsequent requests receive the header automatically — no per-request code needed.
+  // Helper functions for generate-type correlations.
+  // Each returns a fresh token value — called inline only for requests that need the header.
   const genCorrsMj=correlations.filter(c=>c.extractorType==='generate');
   if(genCorrsMj.length>0){
-    o+='    // Generate dynamic values for this iteration\n';
+    o+='    // Dynamic token generators — called only for requests that need the header\n';
     for(const c of genCorrsMj){
       const pat=c.extractorConfig.pattern||'alphanumeric';
       const len=c.extractorConfig.length||19;
+      o+=`    function gen_${c.name}() {\n`;
       if(pat==='uuid')
-        o+=`    load.global.${c.name} = require('crypto').randomUUID();\n`;
+        o+=`        return require('crypto').randomUUID();\n`;
       else if(pat==='hex64')
-        o+=`    load.global.${c.name} = require('crypto').randomBytes(32).toString('hex');\n`;
+        o+=`        return require('crypto').randomBytes(32).toString('hex');\n`;
       else if(pat==='hex32')
-        o+=`    load.global.${c.name} = require('crypto').randomBytes(16).toString('hex');\n`;
+        o+=`        return require('crypto').randomBytes(16).toString('hex');\n`;
       else if(pat==='hex16')
-        o+=`    load.global.${c.name} = require('crypto').randomBytes(8).toString('hex');\n`;
+        o+=`        return require('crypto').randomBytes(8).toString('hex');\n`;
       else
-        o+=`    load.global.${c.name} = require('crypto').randomBytes(${Math.ceil(len/2)}).toString('hex').substring(0,${len});\n`;
-      // Apply to defaults so all requests receive this header automatically
-      const hdrKey=c.usages.find(u=>u.location==='header')?.key;
-      if(hdrKey) o+=`    load.WebRequest.defaults.headers["${escJs(hdrKey)}"] = load.global.${c.name};\n`;
+        o+=`        return require('crypto').randomBytes(${Math.ceil(len/2)}).toString('hex').substring(0,${len});\n`;
+      o+=`    }\n`;
     }
     o+='\n';
   }
@@ -1904,7 +1904,11 @@ function genMainJS(entries, correlations){
     for(const [k,v] of Object.entries(allHdrs)){
       const hdrUsage=reqUsages.find(u=>u.location==='header'&&u.key.toLowerCase()===k.toLowerCase());
       if(hdrUsage){
-        if(hdrUsage.extractorType==='generate') continue; // global defaults.headers handles it
+        if(hdrUsage.extractorType==='generate'){
+          // Call per-request generator inline — only this request gets the fresh token
+          extraHdrs[k]={dynamic:true,expr:`\${gen_${hdrUsage.name}()}`};
+          continue;
+        }
         // Replace with dynamic expression
         const expr=hdrUsage.prefix
           ?`${hdrUsage.prefix}\${load.global.${hdrUsage.name}}`
@@ -2246,25 +2250,25 @@ function genActionC(entries, correlations){
     }
   }
 
-  let o='Action()\n{\n\n\tweb_set_sockets_option("SSL_VERSION", "AUTO");\n\n';
+  // Build helper functions for generate-type correlations.
+  // Each function generates a fresh token value and adds the header for ONE request only.
+  // Called before each request that needs the header — requests that don't need it are unaffected.
+  const genCorrsAC=correlations.filter(c=>c.extractorType==='generate');
+  let helperFns='';
+  for(const c of genCorrsAC){
+    const hdrKey=c.usages.find(u=>u.location==='header')?.key;
+    if(!hdrKey) continue;
+    helperFns+=`void gen_${c.name}()\n{\n`;
+    helperFns+=webHttpCorrCode(c,'\t');
+    helperFns+=`\tweb_add_header("${hdrTitleCase(hdrKey)}", "{${c.name}}");\n`;
+    helperFns+=`}\n\n`;
+  }
+  let o=helperFns+'Action()\n{\n\n\tweb_set_sockets_option("SSL_VERSION", "AUTO");\n\n';
   // Global headers (same value on every request) — set once with web_add_auto_header
   for(const [k,v] of Object.entries(autoHdrs)){
     o+=`\tweb_add_auto_header("${hdrTitleCase(k)}", "${escJs(v)}");\n`;
   }
   if(Object.keys(autoHdrs).length) o+='\n';
-  // Generate dynamic token values (client-side UUID/hex) ONCE per iteration.
-  // web_add_auto_header sets the header globally — ALL requests receive it automatically.
-  // No per-request web_add_header needed, regardless of whether the HAR showed rotation.
-  const genCorrsAC=correlations.filter(c=>c.extractorType==='generate');
-  if(genCorrsAC.length>0){
-    o+='\t// Generate dynamic token values for this iteration\n';
-    for(const c of genCorrsAC){
-      o+=webHttpCorrCode(c,'\t');
-      const hdrKey=c.usages.find(u=>u.location==='header')?.key;
-      if(hdrKey) o+=`\tweb_add_auto_header("${hdrTitleCase(hdrKey)}", "{${c.name}}");\n`;
-    }
-    o+='\n';
-  }
   let snap=1;
   const hasMarkers=entries.some(e=>e.isMarker);
 
@@ -2348,10 +2352,13 @@ function genActionC(entries, correlations){
     }
 
     // Build header injections for this request
-    // generate-type: set once via web_add_auto_header at action start — skip here
     const hdrUsages=reqUsages.filter(u=>u.location==='header');
     for(const u of hdrUsages){
-      if(u.extractorType==='generate') continue; // handled globally by web_add_auto_header
+      if(u.extractorType==='generate'){
+        // Call per-request helper — generates a fresh token and adds the header for THIS request only
+        o+=`\tgen_${u.name}();\n`;
+        continue;
+      }
       const replVal=u.prefix?`${u.prefix}{${u.name}}`:`{${u.name}}`;
       o+=`\tweb_add_header("${u.key}", "${replVal}");\n`;
     }
