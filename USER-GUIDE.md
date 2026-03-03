@@ -310,13 +310,13 @@ While processing, the tool performs several steps automatically:
                          b) Double-submit cookie (CSRF headers) — even
                             when Set-Cookie is absent from HAR
                          c) Client-generated token (UUID/hex format) →
-                            generates a fresh random value each iteration
-                            using lr_param_sprintf / crypto.randomUUID()
+                            generates a helper function called only before
+                            the specific requests that need the header
 
 4. Generate rules    → Creates web_reg_save_param() / CookieExtractor /
-                       lr_param_sprintf rules and places them correctly.
-                       CSRF/XSRF headers: ONE web_add_auto_header call
-                       covers all requests — no per-request repetition.
+                       helper function rules placed correctly.
+                       CSRF/XSRF helper: only the N requests that send the
+                       header call the function — others are untouched.
 
 5. Parameterise      → Detects common user data fields (username, password,
                        card number, dates) and replaces them with parameters

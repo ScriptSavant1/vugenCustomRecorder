@@ -312,12 +312,12 @@ The correlation is also checked in URL path parameters (`;key=value`), query par
 The server sets a cookie (e.g. `XSRF-TOKEN`) and the browser JavaScript reads it and echoes it as a request header. The tool matches the header value against cookies in the same request (with URL-decode/encode variants), then generates a `web_reg_save_param` cookie extractor automatically.
 
 **Strategy 2 — Client-generated token** (SPAs that generate the token in JavaScript):
-Some applications generate a random token entirely in the browser — there is no server response to extract from. The tool detects this when no cookie source can be found and the value looks like a UUID, hex string, or random alphanumeric token. It then generates code that creates a fresh matching-length random value at the start of each VU iteration:
+Some applications generate a random token entirely in the browser — there is no server response to extract from. The tool detects this when no cookie source can be found and the value looks like a UUID, hex string, or random alphanumeric token. It generates a **helper function** that creates a fresh matching-length random value and adds the header — called only before the specific requests that need it:
 
-- **Web HTTP/HTML**: `lr_param_sprintf` at the start of `Action()`, followed by one `web_add_auto_header` — all requests receive the header automatically
-- **DevWeb**: `require('crypto').randomUUID()` or `randomBytes` at the start of the action function, assigned to `load.WebRequest.defaults.headers` — all requests receive it automatically
+- **Web HTTP/HTML**: A `void gen_X_xsrf_token()` function is placed before `Action()`. It calls `lr_param_sprintf` to generate the value and `web_add_header` to attach it. The function is called only before the requests that send the header — other requests are unaffected.
+- **DevWeb**: A `function gen_X_xsrf_token()` is placed inside the action function. It returns a fresh `randomBytes` / `randomUUID` value, called inline in the `headers` object of qualifying requests only.
 
-The generated value matches the original length and format exactly.
+This is precise — if only 20 of your 50 requests need the header, the other 30 receive nothing.
 
 ---
 

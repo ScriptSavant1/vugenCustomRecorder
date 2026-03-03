@@ -224,12 +224,12 @@ TOOL 2:
 |---|---|---|
 | Session IDs (JSessionId, etc.) | URL path `;key=val`, Set-Cookie header | `web_reg_save_param` before source request |
 | CSRF/XSRF (double-submit cookie) | Header value matched to `Cookie:` request header | Cookie extractor + `web_add_header` per request |
-| CSRF/XSRF (client-generated UUID/hex) | Header value is UUID/hex, no cookie source found | `lr_param_sprintf` / `crypto.randomUUID()` — one `web_add_auto_header` covers ALL requests |
+| CSRF/XSRF (client-generated UUID/hex) | Header value is UUID/hex, no cookie source found | Helper function `gen_X_token()` — called only before the requests that need the header |
 | JSON body tokens | Body field differs between sessions | `web_reg_save_param_json` before source response |
 | Form hidden fields (VIEWSTATE, _token, etc.) | Known framework fields | `web_reg_save_param` html extractor |
 | JWT Bearer tokens | `Authorization: Bearer eyJ...` | `web_reg_save_param` boundary extractor |
 | URL path UUIDs | REST path segment differs between sessions | `web_reg_save_param` / BoundaryExtractor |
 
-> **CSRF/XSRF headers are always fully automated** — length-matched random value generated once per iteration, applied globally to all requests. No manual TODO steps required.
+> **CSRF/XSRF headers are always fully automated** — a helper function generates a length-matched random value and adds the header only to the requests that need it. Other requests are untouched. No manual TODO steps required.
 
 *LRE Admin Tool — Quick Reference v2.2*
