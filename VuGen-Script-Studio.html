@@ -1372,6 +1372,31 @@ function twoHarCorrelate(entries1, entries2){
     corrs.push({name,sourceIdx:src.idx,extractorType:src.type,extractorConfig:src.config,usages});
   }
 
+  // Consolidate generate-type correlations sharing the same header key.
+  // Per-request rotating tokens produce one corr per matched pair (each unique value1 → its own corr).
+  // Merge them into ONE correlation (same parameter name) so we generate one fresh value
+  // before each individual request — instead of emitting N separate lr_param_sprintf calls at action start.
+  {
+    const nonGen=[], genByKey=new Map();
+    for(const c of corrs){
+      if(c.extractorType!=='generate'){ nonGen.push(c); continue; }
+      const hdrKey=(c.usages.find(u=>u.location==='header')?.key||'').toLowerCase();
+      if(!genByKey.has(hdrKey)){
+        genByKey.set(hdrKey,{corr:{...c,usages:[...c.usages]},origCount:1});
+      } else {
+        genByKey.get(hdrKey).corr.usages.push(...c.usages);
+        genByKey.get(hdrKey).origCount++;
+      }
+    }
+    corrs=[...nonGen];
+    for(const [,{corr,origCount}] of genByKey){
+      corr.usages.sort((a,b)=>a.reqIdx-b.reqIdx);
+      // origCount > 1 → multiple distinct token values (per-request rotation) → generate before EACH request
+      // origCount === 1 → single session-scoped token (same value all requests) → generate once at iteration start
+      corr.rotatingPerRequest=(origCount>1);
+      corrs.push(corr);
+    }
+  }
   S.candidates=candidates;
   return corrs;
 }
@@ -1789,8 +1814,8 @@ function genMainJS(entries, correlations){
     }
   }
   o+='    };\n\n';
-  // Generate dynamic token values (client-side UUID/hex) once per iteration
-  // Then assign to defaults.headers so ALL requests get the header — no per-request entry needed
+  // Generate dynamic token values ONCE per iteration, assign to defaults.headers.
+  // All subsequent requests receive the header automatically — no per-request code needed.
   const genCorrsMj=correlations.filter(c=>c.extractorType==='generate');
   if(genCorrsMj.length>0){
     o+='    // Generate dynamic values for this iteration\n';
@@ -2227,11 +2252,12 @@ function genActionC(entries, correlations){
     o+=`\tweb_add_auto_header("${hdrTitleCase(k)}", "${escJs(v)}");\n`;
   }
   if(Object.keys(autoHdrs).length) o+='\n';
-  // Generate dynamic token values (client-side UUID/hex) once per iteration
-  // Then set as global auto-header so ALL requests receive it — no per-request web_add_header needed
+  // Generate dynamic token values (client-side UUID/hex) ONCE per iteration.
+  // web_add_auto_header sets the header globally — ALL requests receive it automatically.
+  // No per-request web_add_header needed, regardless of whether the HAR showed rotation.
   const genCorrsAC=correlations.filter(c=>c.extractorType==='generate');
   if(genCorrsAC.length>0){
-    o+='\t// Generate dynamic values for this iteration\n';
+    o+='\t// Generate dynamic token values for this iteration\n';
     for(const c of genCorrsAC){
       o+=webHttpCorrCode(c,'\t');
       const hdrKey=c.usages.find(u=>u.location==='header')?.key;
@@ -2322,7 +2348,7 @@ function genActionC(entries, correlations){
     }
 
     // Build header injections for this request
-    // generate-type correlations are already set via web_add_auto_header at action start — skip here
+    // generate-type: set once via web_add_auto_header at action start — skip here
     const hdrUsages=reqUsages.filter(u=>u.location==='header');
     for(const u of hdrUsages){
       if(u.extractorType==='generate') continue; // handled globally by web_add_auto_header
