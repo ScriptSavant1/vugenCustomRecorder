@@ -157,7 +157,7 @@ https://github.com/nodeca/pako/blob/main/LICENSE
     <!-- HAR 1 -->
     <div class="drop-zone" id="dz1" ondrop="onDrop(event,1)" ondragover="onDragOver(event,1)" ondragleave="onDragLeave(1)">
       <input type="file" accept=".har,.json" onchange="onFilePick(event,1)">
-      <div class="dz-icon">📁</div>
+      <div class="dz-icon">&#x1F4C1;</div>
       <div class="dz-title" id="dz1-title">Recording 1 — HAR or NetLog (Required)</div>
       <div class="dz-sub" id="dz1-sub">Drop .har (DevTools) or .json (chrome://net-export/)</div>
       <div class="dz-name" id="dz1-name" style="display:none"></div>
@@ -166,7 +166,7 @@ https://github.com/nodeca/pako/blob/main/LICENSE
     <!-- HAR 2 -->
     <div class="drop-zone" id="dz2" ondrop="onDrop(event,2)" ondragover="onDragOver(event,2)" ondragleave="onDragLeave(2)">
       <input type="file" accept=".har,.json" onchange="onFilePick(event,2)">
-      <div class="dz-icon">📁</div>
+      <div class="dz-icon">&#x1F4C1;</div>
       <div class="dz-title" id="dz2-title">Recording 2 — HAR or NetLog (Optional)</div>
       <div class="dz-sub" id="dz2-sub">Second run for diff-based correlation</div>
       <div class="dz-name" id="dz2-name" style="display:none"></div>
@@ -219,7 +219,7 @@ https://github.com/nodeca/pako/blob/main/LICENSE
 
   <div class="corr-panel" id="corr-panel">
     <div class="corr-panel-hdr" onclick="toggleCorrPanel()">
-      <span>🔗 Correlation Details</span>
+      <span>&#x1F517; Correlation Details</span>
       <span id="corr-toggle-icon">▼</span>
     </div>
     <div class="corr-list" id="corr-list"></div>
@@ -227,7 +227,7 @@ https://github.com/nodeca/pako/blob/main/LICENSE
 
   <div class="corr-panel" id="param-panel" style="display:none">
     <div class="corr-panel-hdr" onclick="toggleParamPanel()">
-      <span>📋 Parameterization Details</span>
+      <span>&#x1F4CB; Parameterization Details</span>
       <span id="param-toggle-icon">▼</span>
     </div>
     <div class="corr-list" id="param-list"></div>
@@ -379,7 +379,7 @@ function markLoaded(slot, filename, netlog){
   const dz=document.getElementById('dz'+slot);
   dz.classList.add('loaded');
   const tag=netlog?' [NetLog]':'';
-  document.getElementById('dz'+slot+'-name').textContent='✓ '+filename+tag;
+  document.getElementById('dz'+slot+'-name').textContent='\u2713 '+filename+tag;
   document.getElementById('dz'+slot+'-name').style.display='block';
   document.getElementById('dz'+slot+'-sub').style.display='none';
 }
@@ -1752,7 +1752,7 @@ function genMainJS(entries, correlations){
 
   // ── initialize ────────────────────────────────────────────────────────────
   o+='load.initialize("init", async function() {\n';
-  o+='    load.log("🚀 Initializing Vuser " + load.config.user.userId, load.LogLevel.info);\n\n';
+  o+='    load.log("\uD83D\uDE80 Initializing Vuser " + load.config.user.userId, load.LogLevel.info);\n\n';
   const nonGenCorrs=correlations.filter(c=>c.extractorType!=='generate');
   if(nonGenCorrs.length>0){
     o+='    // Correlated dynamic values — extracted at runtime\n';
@@ -1774,7 +1774,7 @@ function genMainJS(entries, correlations){
     const otherCands=S.candidates.filter(c=>!c.usages.some(u=>u.location==='header'));
     if(otherCands.length>0){
       o+='    // TODO: Unresolved correlations — source response body was not captured in HAR.\n';
-      o+='    // Re-record with DevTools "Disable cache" enabled (⚙ → Disable cache) to trace source.\n';
+      o+='    // Re-record with DevTools "Disable cache" enabled (\u2699 \u2192 Disable cache) to trace source.\n';
       o+='    // Once the extraction source is identified, add a TextCheckExtractor or JsonPathExtractor\n';
       o+='    // to the response that returns the value, and assign it to load.global.<name>.\n';
       for(const cand of otherCands){
@@ -1785,7 +1785,7 @@ function genMainJS(entries, correlations){
       o+='\n';
     }
   }
-  o+='    load.log("✓ Initialization complete", load.LogLevel.info);\n';
+  o+='    load.log("\u2713 Initialization complete", load.LogLevel.info);\n';
   o+='});\n\n';
 
   // ── action ────────────────────────────────────────────────────────────────
@@ -2141,7 +2141,7 @@ function genMainJS(entries, correlations){
     o+='    TS01.stop(load.TransactionStatus.Passed);\n';
     o+='    _activeTxn = null;\n\n';
   }
-  o+='    load.log("✓ Action complete", load.LogLevel.info);\n\n';
+  o+='    load.log("\u2713 Action complete", load.LogLevel.info);\n\n';
   // Close try block, add catch
   o+='    } catch(e) {\n';
   o+='        load.log(`Action failed: ${e.message}`, load.LogLevel.error);\n';
@@ -2152,9 +2152,9 @@ function genMainJS(entries, correlations){
 
   // ── finalize ──────────────────────────────────────────────────────────────
   o+='load.finalize("finalize", async function() {\n';
-  o+='    load.log("🏁 Finalizing Vuser " + load.config.user.userId, load.LogLevel.info);\n\n';
+  o+='    load.log("\uD83C\uDFC1 Finalizing Vuser " + load.config.user.userId, load.LogLevel.info);\n\n';
   o+='    // Cleanup code here if needed\n\n';
-  o+='    load.log("✓ Finalization complete", load.LogLevel.info);\n';
+  o+='    load.log("\u2713 Finalization complete", load.LogLevel.info);\n';
   o+='});\n';
   return o;
 }
@@ -2918,7 +2918,7 @@ function renderCorrelations(){
   // HAR quality warning
   if(S.harWarning){
     html+=`<div style="background:var(--warn-bg);border:1px solid var(--warn);border-radius:6px;padding:8px 12px;margin-bottom:10px;font-size:12px;color:var(--warn)">
-      <b>⚠ Recording Warning:</b> ${esc(S.harWarning)}
+      <b>&#x26A0; Recording Warning:</b> ${esc(S.harWarning)}
     </div>`;
   }
 
@@ -3072,7 +3072,7 @@ async function analyze(){
       }).length;
       if(truncated>0&&truncated/rawEntries.length>0.1){
         const cacheWarn=`${truncated} of ${rawEntries.length} responses have empty bodies (served from browser cache). `+
-          `Dynamic values in those responses cannot be traced. Re-record with DevTools "Disable cache" checked (⚙ → Disable cache).`;
+          `Dynamic values in those responses cannot be traced. Re-record with DevTools "Disable cache" checked (\u2699 \u2192 Disable cache).`;
         S.harWarning=S.harWarning?(S.harWarning+' '+cacheWarn):cacheWarn;
       }
     }

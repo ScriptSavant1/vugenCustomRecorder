@@ -182,10 +182,10 @@ https://github.com/nodeca/pako/blob/main/LICENSE
 
 <!-- ═══════════════════════════════ HEADER ════════════════════════════════ -->
 <header class="hdr">
-  <h1>⚡ VuGen HAR Script Generator</h1>
+  <h1>&#x26A1; VuGen HAR Script Generator</h1>
   <span class="ver">v1.0 | LRE Admin Tool</span>
-  <button class="btn btn-ghost btn-sm" onclick="showWelcome()">📂 Load HAR</button>
-  <button class="btn btn-ghost btn-sm" onclick="clearAll()">🗑 Clear</button>
+  <button class="btn btn-ghost btn-sm" onclick="showWelcome()">&#x1F4C2; Load HAR</button>
+  <button class="btn btn-ghost btn-sm" onclick="clearAll()">&#x1F5D1; Clear</button>
 </header>
 
 <!-- ═══════════════════════════════ WELCOME ══════════════════════════════ -->
@@ -193,7 +193,7 @@ https://github.com/nodeca/pako/blob/main/LICENSE
   <div class="drop-zone" id="dz"
        onclick="document.getElementById('hf').click()"
        ondrop="onDrop(event)" ondragover="onDragOver(event)" ondragleave="onDragLeave(event)">
-    <div class="icon">📁</div>
+    <div class="icon">&#x1F4C1;</div>
     <h2>Drop your .har or NetLog .json file here</h2>
     <p>or click to browse &nbsp;·&nbsp; <strong>HAR</strong> (DevTools F12) &nbsp;or&nbsp; <strong>NetLog JSON</strong> (chrome://net-export/)</p>
     <button class="btn btn-primary" onclick="event.stopPropagation();document.getElementById('hf').click()">Browse File</button>
@@ -202,7 +202,7 @@ https://github.com/nodeca/pako/blob/main/LICENSE
 
   <!-- BOOKMARKLET SETUP -->
   <div class="bm-box">
-    <h3>🔖 Step 1 — Set Up Transaction Bookmarklets <span style="font-weight:400;font-size:12px">(one-time setup)</span></h3>
+    <h3>&#x1F516; Step 1 — Set Up Transaction Bookmarklets <span style="font-weight:400;font-size:12px">(one-time setup)</span></h3>
     <p>Drag these two buttons onto your browser's Bookmarks Bar. Once there, click them during recording to mark the start and end of each transaction — no need to type URLs or leave your application.</p>
     <div class="bm-links">
       <a class="bm-drag bm-start"
@@ -217,15 +217,15 @@ https://github.com/nodeca/pako/blob/main/LICENSE
       Show your Bookmarks Bar first: <strong>Ctrl+Shift+B</strong> (Chrome/Edge) or <strong>Ctrl+Shift+B</strong> (Firefox).
       Then drag each coloured button above and drop it onto the bookmarks bar. The buttons will stay there permanently.
     </div>
-    <div class="warn" style="margin-top:10px">⚠️ <strong>Bookmarklets only work on real websites.</strong> They will not respond when clicked on the browser's New Tab page or any <code>chrome://</code> page — Chrome blocks them silently. Always navigate to your application URL first, then click the bookmark.</div>
+    <div class="warn" style="margin-top:10px">&#x26A0; <strong>Bookmarklets only work on real websites.</strong> They will not respond when clicked on the browser's New Tab page or any <code>chrome://</code> page — Chrome blocks them silently. Always navigate to your application URL first, then click the bookmark.</div>
   </div>
 
   <!-- RECORDING STEPS -->
   <div class="instr">
-    <h3>📋 Step 2 — Record Your Application</h3>
+    <h3>&#x1F4CB; Step 2 — Record Your Application</h3>
     <ol class="steps">
       <li><strong>Navigate to your application</strong> in the browser (e.g. <code>https://myapp.company.com</code>) — bookmarklets only work on real <code>http/https</code> pages</li>
-      <li>Press <strong>F12</strong> → click the <strong>Network</strong> tab → click 🚫 to clear existing entries</li>
+      <li>Press <strong>F12</strong> → click the <strong>Network</strong> tab → enable <strong>Preserve Log</strong> and <strong>Disable Cache</strong> checkboxes → click &#x1F6AB; to clear existing entries</li>
       <li>Click the <strong style="color:#166534">▶ START Transaction</strong> bookmark → type a name (e.g. <code>T01_Login</code>) → click OK</li>
       <li>Browse your application normally — navigate by clicking buttons and links as you normally would</li>
       <li>When done with that transaction, click the <strong style="color:#991b1b">■ END Transaction</strong> bookmark → type the <em>same</em> name → click OK</li>
@@ -233,14 +233,21 @@ https://github.com/nodeca/pako/blob/main/LICENSE
       <li>After all transactions are done: in the Network tab, <strong>right-click any row → "Save all as HAR with content"</strong></li>
       <li>Drop the saved <code>.har</code> file in the area above — both scripts are generated automatically</li>
     </ol>
-    <div class="tip">💡 <strong>No bookmarklets / forgot markers?</strong> Use <strong>Select Mode</strong> after loading the HAR to manually group requests into transactions.</div>
-    <div class="warn">⚠️ Keep the Developer Tools (F12) open for the entire recording session. Closing it loses all recorded data.</div>
+    <div class="tip">&#x1F4A1; <strong>DevTools settings (required before recording):</strong>
+      <ul style="margin:6px 0 0 0;padding-left:20px;line-height:1.7">
+        <li><strong>Preserve Log</strong> — keeps all network requests visible across page navigations and redirects. Without this, requests from login redirects are lost.</li>
+        <li><strong>Disable Cache</strong> — forces the browser to fetch fresh responses instead of using the local cache. Without this, response bodies may be empty in the HAR, making correlation extraction impossible in Script Studio.</li>
+      </ul>
+      Both checkboxes are in the Network tab toolbar at the top of the DevTools panel.
+    </div>
+    <div class="tip">&#x1F4A1; <strong>No bookmarklets / forgot markers?</strong> Use <strong>Select Mode</strong> after loading the HAR to manually group requests into transactions.</div>
+    <div class="warn">&#x26A0; Keep the Developer Tools (F12) open for the entire recording session. Closing it loses all recorded data.</div>
   </div>
 
   <!-- FALLBACK METHOD -->
   <details style="margin-bottom:16px">
     <summary style="cursor:pointer;font-size:12.5px;color:var(--muted);padding:8px 12px;background:var(--surface);border:1px solid var(--border);border-radius:6px;user-select:none">
-      🔗 Alternative: Address Bar Method (if bookmarklets are blocked by your organisation)
+      &#x1F517; Alternative: Address Bar Method (if bookmarklets are blocked by your organisation)
     </summary>
     <div class="instr" style="border-top:0;border-radius:0 0 10px 10px;margin-top:0">
       <ol class="steps" style="margin-top:10px">
@@ -256,7 +263,7 @@ https://github.com/nodeca/pako/blob/main/LICENSE
   <!-- MULTI-TAB / POPUP RECORDING -->
   <details style="margin-bottom:16px">
     <summary style="cursor:pointer;font-size:12.5px;color:var(--muted);padding:8px 12px;background:var(--surface);border:1px solid var(--border);border-radius:6px;user-select:none">
-      🪟 Multi-tab / Popup recording — use chrome://net-export/ when your app opens new windows or tabs
+      &#x1FA9F; Multi-tab / Popup recording — use chrome://net-export/ when your app opens new windows or tabs
     </summary>
     <div class="instr" style="border-top:0;border-radius:0 0 10px 10px;margin-top:0">
       <p style="font-size:12.5px;color:var(--muted);margin-bottom:10px">Developer Tools (F12) only records the tab it is attached to. If your app opens popup windows or new tabs, use Chrome/Edge's built-in all-tab capture instead. <strong>Note:</strong> NetLog does not capture POST request bodies — those requests will show a TODO comment in the generated script.</p>
@@ -284,22 +291,22 @@ https://github.com/nodeca/pako/blob/main/LICENSE
     <label class="chk-lbl"><input type="checkbox" id="f-noise"  checked onchange="refresh()"> Analytics/Ads</label>
     <label class="chk-lbl"><input type="checkbox" id="f-opts"   checked onchange="refresh()"> OPTIONS</label>
     <div class="tbar-sep"></div>
-    <button class="btn btn-muted btn-sm" id="btn-sel" onclick="toggleSelMode()">☑ Select Mode</button>
+    <button class="btn btn-muted btn-sm" id="btn-sel" onclick="toggleSelMode()">&#x2611; Select Mode</button>
     <div id="sel-bar">
       <span id="sel-cnt">0 selected</span>
       <button class="btn btn-primary btn-sm" onclick="openTxnModal()">+ Create Transaction</button>
-      <button class="btn btn-muted btn-sm" onclick="clearSel()">✕ Cancel</button>
+      <button class="btn btn-muted btn-sm" onclick="clearSel()">&#x2715; Cancel</button>
     </div>
     <div class="tbar-sep"></div>
-    <span class="fmt-badge" id="fmt-badge">🌐 Web HTTP/HTML</span>
-    <button class="btn btn-muted btn-sm" onclick="openFmtModal(true)">⚙ Change Format</button>
+    <span class="fmt-badge" id="fmt-badge">&#x1F310; Web HTTP/HTML</span>
+    <button class="btn btn-muted btn-sm" onclick="openFmtModal(true)">&#x2699; Change Format</button>
     <button class="btn btn-muted btn-sm" id="btn-collapse-all" style="display:none" onclick="toggleCollapseAll()">⊖ Collapse All</button>
     <span id="stats"></span>
   </div>
 
   <!-- NetLog warning banner — visible only when loaded from chrome://net-export/ -->
   <div id="netlog-banner" class="hidden" style="background:#fef3c7;border-bottom:2px solid #f59e0b;padding:6px 16px;font-size:12px;color:#78350f;display:flex;align-items:center;gap:8px;flex-shrink:0">
-    <span style="font-size:15px">⚠</span>
+    <span style="font-size:15px">&#x26A0;</span>
     <span><strong>NetLog source (chrome://net-export/)</strong> — POST request bodies are not available in NetLog files.
     GET/HEAD requests are fully reproduced. For POST bodies, check the TODO comments in the generated scripts and add them manually.</span>
   </div>
@@ -311,7 +318,7 @@ https://github.com/nodeca/pako/blob/main/LICENSE
     <div class="domain-pane" id="domain-pane">
       <div class="dp-hdr">
         <div class="dp-hdr-top">
-          <span class="dp-hdr-title">🌐 <span id="dp-title">Domains</span></span>
+          <span class="dp-hdr-title">&#x1F310; <span id="dp-title">Domains</span></span>
           <div class="dp-acts">
             <button onclick="toggleAllDomains(true)">All</button>
             <button onclick="toggleAllDomains(false)">None</button>
@@ -387,21 +394,21 @@ https://github.com/nodeca/pako/blob/main/LICENSE
     <div class="fmt-cards">
 
       <div class="fmt-card selected" id="fc-webhttp" onclick="selectFmt('webhttp')">
-        <div class="fmt-card-icon">🌐</div>
+        <div class="fmt-card-icon">&#x1F310;</div>
         <div class="fmt-card-title">Web HTTP/HTML</div>
         <div class="fmt-card-sub">C Language Protocol</div>
         <div class="fmt-card-files">Action.c<br>vuser_init.c<br>vuser_end.c<br>globals.h</div>
       </div>
 
       <div class="fmt-card" id="fc-devweb" onclick="selectFmt('devweb')">
-        <div class="fmt-card-icon">⚡</div>
+        <div class="fmt-card-icon">&#x26A1;</div>
         <div class="fmt-card-title">DevWeb</div>
         <div class="fmt-card-sub">JavaScript Protocol</div>
         <div class="fmt-card-files">main.js</div>
       </div>
 
       <div class="fmt-card" id="fc-both" onclick="selectFmt('both')">
-        <div class="fmt-card-icon">📦</div>
+        <div class="fmt-card-icon">&#x1F4E6;</div>
         <div class="fmt-card-title">Both Formats</div>
         <div class="fmt-card-sub">All files generated</div>
         <div class="fmt-card-files">Action.c · main.js<br>vuser_init.c<br>vuser_end.c · globals.h</div>
@@ -1163,11 +1170,11 @@ function genMainJS(){
 
   // ── initialize ────────────────────────────────────────────────────────────
   o+='load.initialize("init", async function() {\n';
-  o+='    load.log("🚀 Initializing Vuser " + load.config.user.userId, load.LogLevel.info);\n\n';
+  o+='    load.log("\uD83D\uDE80 Initializing Vuser " + load.config.user.userId, load.LogLevel.info);\n\n';
   o+='    // Initialize global variables for correlated dynamic values\n';
   o+='    // load.global.accessToken = null;\n';
   o+='    // load.global.sessionId   = null;\n\n';
-  o+='    load.log("✓ Initialization complete", load.LogLevel.info);\n';
+  o+='    load.log("\u2713 Initialization complete", load.LogLevel.info);\n';
   o+='});\n\n';
 
   // ── action ────────────────────────────────────────────────────────────────
@@ -1254,14 +1261,14 @@ function genMainJS(){
     rid++;
   }
 
-  o+='    load.log("✓ Action complete", load.LogLevel.info);\n';
+  o+='    load.log("\u2713 Action complete", load.LogLevel.info);\n';
   o+='});\n\n';
 
   // ── finalize ──────────────────────────────────────────────────────────────
   o+='load.finalize("finalize", async function() {\n';
-  o+='    load.log("🏁 Finalizing Vuser " + load.config.user.userId, load.LogLevel.info);\n\n';
+  o+='    load.log("\uD83C\uDFC1 Finalizing Vuser " + load.config.user.userId, load.LogLevel.info);\n\n';
   o+='    // Cleanup code here if needed\n\n';
-  o+='    load.log("✓ Finalization complete", load.LogLevel.info);\n';
+  o+='    load.log("\u2713 Finalization complete", load.LogLevel.info);\n';
   o+='});\n';
   return o;
 }
@@ -1866,7 +1873,7 @@ function applyFmtUI(){
   document.getElementById('dl-sep').classList.toggle('hidden',!(isWeb&&isDev));
 
   // Update format badge
-  const labels={webhttp:'🌐 Web HTTP/HTML', devweb:'⚡ DevWeb', both:'🌐+⚡ Both Formats'};
+  const labels={webhttp:'\uD83C\uDF10 Web HTTP/HTML', devweb:'\u26A1 DevWeb', both:'\uD83C\uDF10+\u26A1 Both Formats'};
   document.getElementById('fmt-badge').textContent=labels[S.format]||'';
 
   // Activate the best default tab

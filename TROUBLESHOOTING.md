@@ -71,14 +71,28 @@ Chrome and Edge silently block `javascript:` bookmarklets on any `chrome://` pag
 
 ---
 
+### ❓ Required DevTools settings before every recording
+
+Always enable these two checkboxes in the **Network** tab toolbar before starting a recording:
+
+| Checkbox | Why it matters |
+|---|---|
+| **Preserve Log** | Keeps all requests visible across page navigations and HTTP redirects. Without it, requests from login redirects disappear from the list. |
+| **Disable Cache** | Forces fresh server responses instead of the browser cache. Without it, response bodies may be empty in the HAR — making correlation extraction in Script Studio impossible. |
+
+Both are in the Network tab toolbar at the top of the DevTools panel (Chrome/Edge). In Firefox, "Disable Cache" is in the ⚙ gear menu; "Persist Logs" is in the gear menu too.
+
+---
+
 ### ❓ My Network tab is empty when I open it
 
 **Cause:** The Network tab only captures requests made while it is open.
 
 **Fix:**
 1. Press F12 → click the **Network** tab
-2. Click 🚫 to clear any entries
-3. Now start your recording (do NOT reopen/close DevTools)
+2. Enable **Preserve Log** and **Disable Cache** checkboxes
+3. Click the Clear (stop sign) button to clear any old entries
+4. Now start your recording (do NOT reopen/close DevTools)
 
 ---
 

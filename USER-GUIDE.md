@@ -112,10 +112,16 @@ The bar will appear. If you already have bookmarks, you will see them there.
 2. Navigate to your application's starting page
 3. Press **F12** on your keyboard — a panel will open at the bottom or side of the screen
 4. Click the **"Network"** tab inside that panel
-5. Click the **🚫 (Clear)** button to remove any old entries
-6. Confirm the **red record circle ⏺** is active
+5. Enable the **Preserve Log** checkbox in the Network toolbar
+6. Enable the **Disable Cache** checkbox in the Network toolbar
+7. Click the **Clear** (stop sign) button to remove any old entries
+8. Confirm the **red record circle** is active
 
 > **Important:** Keep Developer Tools open for the entire recording. Do not close it.
+
+> **Why Preserve Log?** Keeps all network requests visible across page navigations and redirects. Without this, requests made during login redirects disappear from the list.
+
+> **Why Disable Cache?** Forces fresh responses from the server instead of the browser cache. Without this, response bodies may be empty in the saved HAR — making correlation extraction in Script Studio impossible.
 
 ---
 
@@ -264,7 +270,7 @@ You need to record the **same user journey twice**. Each recording must be a com
 **Recording 2:**
 1. Close your browser completely (or open a fresh Incognito window: `Ctrl+Shift+N`)
 2. Repeat the exact same steps as Recording 1:
-   - Press F12 → Network tab → Clear entries
+   - Press F12 → Network tab → enable **Preserve Log** and **Disable Cache** → Clear entries
    - Click ▶ START for each transaction → do the steps → click ■ END
    - Save as HAR → name it `MyApp_Recording_2.har`
 
@@ -417,7 +423,8 @@ For all other values, the tool traces back through responses automatically. If a
 │  Open VuGen-Recorder.html → drag ▶ START and ■ END to Bookmarks Bar    │
 │                                                                         │
 │  STEP 3 — RECORD (do this twice for best results)                       │
-│  F12 → Network tab → Clear → For each transaction:                      │
+│  F12 → Network tab → Preserve Log ON → Disable Cache ON → Clear         │
+│  For each transaction:                                                   │
 │    Click ▶ START → do the steps → click ■ END                          │
 │  Right-click in Network → Save all as HAR with content                  │
 │                                                                         │

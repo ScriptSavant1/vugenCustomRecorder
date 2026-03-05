@@ -51,7 +51,9 @@ BEFORE STARTING:
   □  Plan transaction names (T01, T02, T03...)
   □  Open browser → press F12
   □  Click the "Network" tab
-  □  Click 🚫 to clear existing entries
+  □  Enable "Preserve Log" checkbox  ← keeps requests across redirects
+  □  Enable "Disable Cache" checkbox  ← ensures response bodies are captured
+  □  Click the Clear (stop sign) button to clear existing entries
 
 FOR EACH TRANSACTION:
   □  Click  ▶ START Transaction  → type name → OK
@@ -92,7 +94,8 @@ AFTER ALL TRANSACTIONS:
 ```
 For Recording 2:
   □  Log out of the application completely (or use Incognito window)
-  □  Open browser → F12 → Network → Clear
+  □  Open browser → F12 → Network tab
+  □  Enable "Preserve Log" and "Disable Cache" → Clear entries
   □  Repeat the EXACT same steps as Recording 1
   □  Save as  MyApp_Recording_2.har
 ```
