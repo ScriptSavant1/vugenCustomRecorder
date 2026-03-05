@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>VuGen HAR Script Generator — LRE Admin Tool</title>
+<title>VuGen HAR Script Generator &#x2014; LRE Admin Tool</title>
 <style>
 :root {
   --primary:#1e40af; --primary-lt:#3b82f6; --primary-bg:#eff6ff;
@@ -14,12 +14,12 @@
 *{box-sizing:border-box;margin:0;padding:0}
 body{font-family:'Segoe UI',-apple-system,sans-serif;background:var(--bg);color:var(--text);min-height:100vh;overflow:hidden}
 
-/* ── HEADER ───────────────────────────────────────────────── */
+/* -- HEADER ------------------------------------------------- */
 .hdr{background:var(--primary);color:#fff;padding:10px 18px;display:flex;align-items:center;gap:12px;box-shadow:0 2px 8px rgba(0,0,0,.25);z-index:100;position:relative}
 .hdr h1{font-size:16px;font-weight:700;flex:1}
 .hdr .ver{font-size:11px;opacity:.65}
 
-/* ── BUTTONS ──────────────────────────────────────────────── */
+/* -- BUTTONS ------------------------------------------------ */
 .btn{padding:5px 13px;border:none;border-radius:5px;font-size:12px;font-weight:600;cursor:pointer;display:inline-flex;align-items:center;gap:5px;transition:filter .12s;white-space:nowrap}
 .btn:hover{filter:brightness(.88)}
 .btn:active{filter:brightness(.75)}
@@ -30,7 +30,7 @@ body{font-family:'Segoe UI',-apple-system,sans-serif;background:var(--bg);color:
 .btn-muted{background:#f1f5f9;color:var(--text)}
 .btn-sm{padding:4px 10px;font-size:11px}
 
-/* ── WELCOME PANEL ────────────────────────────────────────── */
+/* -- WELCOME PANEL ------------------------------------------ */
 #welcome{max-width:800px;margin:28px auto;padding:0 20px;overflow-y:auto;max-height:calc(100vh - 80px)}
 .drop-zone{border:2px dashed var(--border);border-radius:12px;padding:36px 32px;background:var(--surface);cursor:pointer;transition:all .18s;text-align:center;margin-bottom:18px}
 .drop-zone:hover,.drop-zone.over{border-color:var(--primary-lt);background:var(--primary-bg)}
@@ -59,7 +59,7 @@ code{background:#f1f5f9;padding:2px 5px;border-radius:3px;font-family:Consolas,m
 .bm-note{font-size:11.5px;color:#374151;background:#f9fafb;border:1px solid var(--border);border-radius:6px;padding:8px 12px}
 .bm-note strong{display:block;margin-bottom:4px}
 
-/* ── DOMAIN FILTER PANEL ──────────────────────────────────── */
+/* -- DOMAIN FILTER PANEL ------------------------------------ */
 .domain-pane{width:195px;flex-shrink:0;border-right:1px solid var(--border);display:flex;flex-direction:column;background:var(--surface);overflow:hidden}
 .dp-hdr{padding:7px 10px;border-bottom:1px solid var(--border);background:#f8fafc;flex-shrink:0}
 .dp-hdr-top{display:flex;align-items:center;justify-content:space-between;margin-bottom:5px}
@@ -78,13 +78,13 @@ code{background:#f1f5f9;padding:2px 5px;border-radius:3px;font-family:Consolas,m
 .dp-meta{font-size:9.5px;color:var(--muted);text-align:right;flex-shrink:0;line-height:1.5}
 .dp-empty{padding:14px 10px;font-size:11px;color:var(--muted);text-align:center}
 
-/* ── RESIZABLE PANEL DIVIDERS ─────────────────────────────── */
+/* -- RESIZABLE PANEL DIVIDERS ------------------------------- */
 .resizer{width:5px;flex-shrink:0;cursor:col-resize;background:var(--border);position:relative;transition:background .15s;z-index:10}
 .resizer:hover,.resizer.rs-active{background:var(--primary-lt)}
 .resizer::after{content:'';position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);width:1px;height:30px;background:currentColor;opacity:0;transition:opacity .15s}
 .resizer:hover::after,.resizer.rs-active::after{opacity:.5}
 
-/* ── FORMAT PICKER ────────────────────────────────────────── */
+/* -- FORMAT PICKER ------------------------------------------ */
 .fmt-cards{display:flex;gap:12px;margin:16px 0 6px}
 .fmt-card{flex:1;border:2px solid var(--border);border-radius:10px;padding:16px 12px;cursor:pointer;text-align:center;transition:all .15s;user-select:none}
 .fmt-card:hover{border-color:var(--primary-lt);background:var(--primary-bg)}
@@ -95,7 +95,7 @@ code{background:#f1f5f9;padding:2px 5px;border-radius:3px;font-family:Consolas,m
 .fmt-card-files{font-size:10.5px;color:var(--muted);line-height:1.7;background:#f8fafc;border-radius:5px;padding:5px 8px}
 .fmt-badge{display:inline-flex;align-items:center;gap:5px;font-size:11px;font-weight:700;color:var(--primary);background:var(--primary-bg);border:1px solid #bfdbfe;border-radius:4px;padding:2px 8px}
 
-/* ── MAIN PANEL ───────────────────────────────────────────── */
+/* -- MAIN PANEL --------------------------------------------- */
 #main{display:flex;flex-direction:column;height:calc(100vh - 44px)}
 
 /* toolbar */
@@ -140,7 +140,7 @@ tbody td{padding:5px 9px;border-bottom:1px solid #f1f5f9;vertical-align:middle;m
 tr.selectable{cursor:pointer}
 tr.row-sel{outline:2px solid var(--primary-lt);outline-offset:-2px;background:var(--primary-bg) !important}
 
-/* ── SCRIPT PANE ──────────────────────────────────────────── */
+/* -- SCRIPT PANE -------------------------------------------- */
 .code-pane{width:44%;min-width:320px;display:flex;flex-direction:column;background:var(--code-bg);flex-shrink:0}
 .code-tabs{display:flex;background:#252526;border-bottom:1px solid #333;overflow-x:auto;flex-shrink:0}
 .code-tab{padding:7px 13px;font-size:11.5px;color:#9ca3af;cursor:pointer;border-bottom:2px solid transparent;white-space:nowrap;user-select:none;flex-shrink:0}
@@ -148,11 +148,11 @@ tr.row-sel{outline:2px solid var(--primary-lt);outline-offset:-2px;background:va
 .code-tab:hover:not(.act){color:#d1d5db}
 .code-body{flex:1;overflow:auto;padding:14px 16px;font-family:Consolas,Monaco,monospace;font-size:12px;color:#d4d4d4;line-height:1.65;white-space:pre}
 
-/* ── DOWNLOAD BAR ─────────────────────────────────────────── */
+/* -- DOWNLOAD BAR ------------------------------------------- */
 .dl-bar{background:var(--surface);border-top:1px solid var(--border);padding:8px 14px;display:flex;align-items:center;gap:8px;flex-wrap:wrap;flex-shrink:0}
 .dl-bar label{font-size:11px;color:var(--muted);font-weight:700}
 
-/* ── MODAL ────────────────────────────────────────────────── */
+/* -- MODAL -------------------------------------------------- */
 .modal-bg{position:fixed;inset:0;background:rgba(0,0,0,.5);display:flex;align-items:center;justify-content:center;z-index:200}
 .modal{background:#fff;border-radius:10px;padding:22px 26px;min-width:340px;box-shadow:0 24px 60px rgba(0,0,0,.3)}
 .modal h3{font-size:15px;margin-bottom:14px;font-weight:700}
@@ -180,7 +180,7 @@ https://github.com/nodeca/pako/blob/main/LICENSE
 </head>
 <body>
 
-<!-- ═══════════════════════════════ HEADER ════════════════════════════════ -->
+<!-- ======= HEADER ======= -->
 <header class="hdr">
   <h1>&#x26A1; VuGen HAR Script Generator</h1>
   <span class="ver">v1.0 | LRE Admin Tool</span>
@@ -188,55 +188,55 @@ https://github.com/nodeca/pako/blob/main/LICENSE
   <button class="btn btn-ghost btn-sm" onclick="clearAll()">&#x1F5D1; Clear</button>
 </header>
 
-<!-- ═══════════════════════════════ WELCOME ══════════════════════════════ -->
+<!-- ======= WELCOME ======= -->
 <div id="welcome">
   <div class="drop-zone" id="dz"
        onclick="document.getElementById('hf').click()"
        ondrop="onDrop(event)" ondragover="onDragOver(event)" ondragleave="onDragLeave(event)">
     <div class="icon">&#x1F4C1;</div>
     <h2>Drop your .har or NetLog .json file here</h2>
-    <p>or click to browse &nbsp;·&nbsp; <strong>HAR</strong> (DevTools F12) &nbsp;or&nbsp; <strong>NetLog JSON</strong> (chrome://net-export/)</p>
+    <p>or click to browse &nbsp;&#xB7;&nbsp; <strong>HAR</strong> (DevTools F12) &nbsp;or&nbsp; <strong>NetLog JSON</strong> (chrome://net-export/)</p>
     <button class="btn btn-primary" onclick="event.stopPropagation();document.getElementById('hf').click()">Browse File</button>
   </div>
   <input type="file" id="hf" accept=".har,.json" hidden onchange="onFilePick(event)">
 
   <!-- BOOKMARKLET SETUP -->
   <div class="bm-box">
-    <h3>&#x1F516; Step 1 — Set Up Transaction Bookmarklets <span style="font-weight:400;font-size:12px">(one-time setup)</span></h3>
-    <p>Drag these two buttons onto your browser's Bookmarks Bar. Once there, click them during recording to mark the start and end of each transaction — no need to type URLs or leave your application.</p>
+    <h3>&#x1F516; Step 1 &#x2014; Set Up Transaction Bookmarklets <span style="font-weight:400;font-size:12px">(one-time setup)</span></h3>
+    <p>Drag these two buttons onto your browser's Bookmarks Bar. Once there, click them during recording to mark the start and end of each transaction  -  no need to type URLs or leave your application.</p>
     <div class="bm-links">
       <a class="bm-drag bm-start"
          href="javascript:(function(){try{var last=localStorage.getItem('_vugen_txn')||'T01_Name';var n=prompt('Transaction name (e.g. T01_Login):',last);if(n){n=n.trim().replace(/[\s-]+/g,'_');if(n){localStorage.setItem('_vugen_txn',n);new Image().src='https://START-'+n+'.invalid/';}}}catch(e){}})();"
-         onclick="alert('Drag this button to your Bookmarks Bar — do not click it here.');return false;">▶ START Transaction</a>
+         onclick="alert('Drag this button to your Bookmarks Bar &#x2014; do not click it here.');return false;">&#x25B6; START Transaction</a>
       <a class="bm-drag bm-end"
          href="javascript:(function(){try{var last=localStorage.getItem('_vugen_txn')||'T01_Name';var n=prompt('Transaction name (e.g. T01_Name):',last);if(n){n=n.trim().replace(/[\s-]+/g,'_');if(n)new Image().src='https://END-'+n+'.invalid/';}}catch(e){}})();"
-         onclick="alert('Drag this button to your Bookmarks Bar — do not click it here.');return false;">■ END Transaction</a>
+         onclick="alert('Drag this button to your Bookmarks Bar &#x2014; do not click it here.');return false;">&#x25A0; END Transaction</a>
     </div>
     <div class="bm-note">
       <strong>How to add to Bookmarks Bar:</strong>
       Show your Bookmarks Bar first: <strong>Ctrl+Shift+B</strong> (Chrome/Edge) or <strong>Ctrl+Shift+B</strong> (Firefox).
       Then drag each coloured button above and drop it onto the bookmarks bar. The buttons will stay there permanently.
     </div>
-    <div class="warn" style="margin-top:10px">&#x26A0; <strong>Bookmarklets only work on real websites.</strong> They will not respond when clicked on the browser's New Tab page or any <code>chrome://</code> page — Chrome blocks them silently. Always navigate to your application URL first, then click the bookmark.</div>
+    <div class="warn" style="margin-top:10px">&#x26A0; <strong>Bookmarklets only work on real websites.</strong> They will not respond when clicked on the browser's New Tab page or any <code>chrome://</code> page  -  Chrome blocks them silently. Always navigate to your application URL first, then click the bookmark.</div>
   </div>
 
   <!-- RECORDING STEPS -->
   <div class="instr">
-    <h3>&#x1F4CB; Step 2 — Record Your Application</h3>
+    <h3>&#x1F4CB; Step 2 &#x2014; Record Your Application</h3>
     <ol class="steps">
-      <li><strong>Navigate to your application</strong> in the browser (e.g. <code>https://myapp.company.com</code>) — bookmarklets only work on real <code>http/https</code> pages</li>
-      <li>Press <strong>F12</strong> → click the <strong>Network</strong> tab → enable <strong>Preserve Log</strong> and <strong>Disable Cache</strong> checkboxes → click &#x1F6AB; to clear existing entries</li>
-      <li>Click the <strong style="color:#166534">▶ START Transaction</strong> bookmark → type a name (e.g. <code>T01_Login</code>) → click OK</li>
-      <li>Browse your application normally — navigate by clicking buttons and links as you normally would</li>
-      <li>When done with that transaction, click the <strong style="color:#991b1b">■ END Transaction</strong> bookmark → type the <em>same</em> name → click OK</li>
-      <li>Immediately click <strong style="color:#166534">▶ START Transaction</strong> again for the next transaction — keep browsing without stopping</li>
-      <li>After all transactions are done: in the Network tab, <strong>right-click any row → "Save all as HAR with content"</strong></li>
-      <li>Drop the saved <code>.har</code> file in the area above — both scripts are generated automatically</li>
+      <li><strong>Navigate to your application</strong> in the browser (e.g. <code>https://myapp.company.com</code>)  -  bookmarklets only work on real <code>http/https</code> pages</li>
+      <li>Press <strong>F12</strong> &rarr; click the <strong>Network</strong> tab &rarr; enable <strong>Preserve Log</strong> and <strong>Disable Cache</strong> checkboxes -> click &#x1F6AB; to clear existing entries</li>
+      <li>Click the <strong style="color:#166534">&#x25B6; START Transaction</strong> bookmark &rarr; type a name (e.g. <code>T01_Login</code>) -> click OK</li>
+      <li>Browse your application normally &#x2014; navigate by clicking buttons and links as you normally would</li>
+      <li>When done with that transaction, click the <strong style="color:#991b1b">&#x25A0; END Transaction</strong> bookmark &rarr; type the <em>same</em> name -> click OK</li>
+      <li>Immediately click <strong style="color:#166534">&#x25B6; START Transaction</strong> again for the next transaction  -  keep browsing without stopping</li>
+      <li>After all transactions are done: in the Network tab, <strong>right-click any row &rarr; "Save all as HAR with content"</strong></li>
+      <li>Drop the saved <code>.har</code> file in the area above &#x2014; both scripts are generated automatically</li>
     </ol>
     <div class="tip">&#x1F4A1; <strong>DevTools settings (required before recording):</strong>
       <ul style="margin:6px 0 0 0;padding-left:20px;line-height:1.7">
-        <li><strong>Preserve Log</strong> — keeps all network requests visible across page navigations and redirects. Without this, requests from login redirects are lost.</li>
-        <li><strong>Disable Cache</strong> — forces the browser to fetch fresh responses instead of using the local cache. Without this, response bodies may be empty in the HAR, making correlation extraction impossible in Script Studio.</li>
+        <li><strong>Preserve Log</strong> &#x2014; keeps all network requests visible across page navigations and redirects. Without this, requests from login redirects are lost.</li>
+        <li><strong>Disable Cache</strong> &#x2014; forces the browser to fetch fresh responses instead of using the local cache. Without this, response bodies may be empty in the HAR, making correlation extraction impossible in Script Studio.</li>
       </ul>
       Both checkboxes are in the Network tab toolbar at the top of the DevTools panel.
     </div>
@@ -254,7 +254,7 @@ https://github.com/nodeca/pako/blob/main/LICENSE
         <li>In the browser address bar, type <code>https://START-T01-Login.invalid</code> and press Enter (error page is expected)</li>
         <li>Type your application URL to go back, then perform all steps for this transaction</li>
         <li>Type <code>https://END-T01-Login.invalid</code> in the address bar and press Enter</li>
-        <li>Do <strong>not</strong> click the Back button — type the next START URL directly in the address bar</li>
+        <li>Do <strong>not</strong> click the Back button &#x2014; type the next START URL directly in the address bar</li>
         <li>Repeat for each transaction (T02, T03 etc.)</li>
       </ol>
     </div>
@@ -263,25 +263,25 @@ https://github.com/nodeca/pako/blob/main/LICENSE
   <!-- MULTI-TAB / POPUP RECORDING -->
   <details style="margin-bottom:16px">
     <summary style="cursor:pointer;font-size:12.5px;color:var(--muted);padding:8px 12px;background:var(--surface);border:1px solid var(--border);border-radius:6px;user-select:none">
-      &#x1FA9F; Multi-tab / Popup recording — use chrome://net-export/ when your app opens new windows or tabs
+      &#x1FA9F; Multi-tab / Popup recording &#x2014; use chrome://net-export/ when your app opens new windows or tabs
     </summary>
     <div class="instr" style="border-top:0;border-radius:0 0 10px 10px;margin-top:0">
-      <p style="font-size:12.5px;color:var(--muted);margin-bottom:10px">Developer Tools (F12) only records the tab it is attached to. If your app opens popup windows or new tabs, use Chrome/Edge's built-in all-tab capture instead. <strong>Note:</strong> NetLog does not capture POST request bodies — those requests will show a TODO comment in the generated script.</p>
+      <p style="font-size:12.5px;color:var(--muted);margin-bottom:10px">Developer Tools (F12) only records the tab it is attached to. If your app opens popup windows or new tabs, use Chrome/Edge's built-in all-tab capture instead. <strong>Note:</strong> NetLog does not capture POST request bodies  -  those requests will show a TODO comment in the generated script.</p>
       <ol class="steps" style="margin-top:0">
         <li>In the Chrome/Edge address bar, navigate to <code>chrome://net-export/</code></li>
-        <li>Click <strong>Start Logging to Disk</strong> — choose a save location and click Save</li>
+        <li>Click <strong>Start Logging to Disk</strong> &#x2014; choose a save location and click Save</li>
         <li>Open your application in a new tab (the net-export tab stays open in the background)</li>
-        <li>Use the <strong>▶ START Transaction</strong> and <strong>■ END Transaction</strong> bookmarklets as normal — they capture to NetLog from any tab</li>
+        <li>Use the <strong>&#x25B6; START Transaction</strong> and <strong>&#x25A0; END Transaction</strong> bookmarklets as normal  -  they capture to NetLog from any tab</li>
         <li>Complete your full user journey (including any popup windows or new tabs the app opens)</li>
         <li>Switch back to the <code>chrome://net-export/</code> tab and click <strong>Stop Logging</strong></li>
         <li>Drop the saved <code>.json</code> file into this tool just as you would a <code>.har</code> file</li>
       </ol>
-      <div class="tip" style="margin-top:10px">POST bodies will show as TODO in generated scripts. Open DevTools alongside for the same session if you also need bodies — then use the <code>.har</code> from DevTools for a complete script.</div>
+      <div class="tip" style="margin-top:10px">POST bodies will show as TODO in generated scripts. Open DevTools alongside for the same session if you also need bodies  -  then use the <code>.har</code> from DevTools for a complete script.</div>
     </div>
   </details>
 </div>
 
-<!-- ═══════════════════════════════ MAIN PANEL ═══════════════════════════ -->
+<!-- ======= MAIN PANEL ======= -->
 <div id="main" class="hidden">
 
   <!-- TOOLBAR -->
@@ -300,14 +300,14 @@ https://github.com/nodeca/pako/blob/main/LICENSE
     <div class="tbar-sep"></div>
     <span class="fmt-badge" id="fmt-badge">&#x1F310; Web HTTP/HTML</span>
     <button class="btn btn-muted btn-sm" onclick="openFmtModal(true)">&#x2699; Change Format</button>
-    <button class="btn btn-muted btn-sm" id="btn-collapse-all" style="display:none" onclick="toggleCollapseAll()">⊖ Collapse All</button>
+    <button class="btn btn-muted btn-sm" id="btn-collapse-all" style="display:none" onclick="toggleCollapseAll()">&#x2296; Collapse All</button>
     <span id="stats"></span>
   </div>
 
-  <!-- NetLog warning banner — visible only when loaded from chrome://net-export/ -->
+  <!-- NetLog warning banner - visible only when loaded from chrome://net-export/ -->
   <div id="netlog-banner" class="hidden" style="background:#fef3c7;border-bottom:2px solid #f59e0b;padding:6px 16px;font-size:12px;color:#78350f;display:flex;align-items:center;gap:8px;flex-shrink:0">
     <span style="font-size:15px">&#x26A0;</span>
-    <span><strong>NetLog source (chrome://net-export/)</strong> — POST request bodies are not available in NetLog files.
+    <span><strong>NetLog source (chrome://net-export/)</strong> &#x2014; POST request bodies are not available in NetLog files.
     GET/HEAD requests are fully reproduced. For POST bodies, check the TODO comments in the generated scripts and add them manually.</span>
   </div>
 
@@ -324,7 +324,7 @@ https://github.com/nodeca/pako/blob/main/LICENSE
             <button onclick="toggleAllDomains(false)">None</button>
           </div>
         </div>
-        <input class="dp-search" type="text" placeholder="Search domains…" oninput="renderDomainPanel(this.value)">
+        <input class="dp-search" type="text" placeholder="Search domains&#x2026;" oninput="renderDomainPanel(this.value)">
       </div>
       <div class="dp-list" id="dp-list">
         <div class="dp-empty">Load a HAR file</div>
@@ -373,20 +373,20 @@ https://github.com/nodeca/pako/blob/main/LICENSE
   <div class="dl-bar">
     <span id="dl-webhttp" style="display:inline-flex;align-items:center;gap:8px">
       <label>Web HTTP/HTML:</label>
-      <button class="btn btn-success btn-sm" onclick="dlZip('webhttp')">⬇ Download Project ZIP</button>
+      <button class="btn btn-success btn-sm" onclick="dlZip('webhttp')">v Download Project ZIP</button>
     </span>
     <div class="tbar-sep" id="dl-sep"></div>
     <span id="dl-devweb" style="display:inline-flex;align-items:center;gap:8px">
       <label>DevWeb:</label>
-      <button class="btn btn-primary btn-sm" onclick="dlZip('devweb')">⬇ Download Project ZIP</button>
+      <button class="btn btn-primary btn-sm" onclick="dlZip('devweb')">v Download Project ZIP</button>
     </span>
     <div class="tbar-sep"></div>
-    <button class="btn btn-success btn-sm" onclick="dlZip('both')">⬇ Download Both ZIPs</button>
+    <button class="btn btn-success btn-sm" onclick="dlZip('both')">&#x2B07; Download Both ZIPs</button>
   </div>
 
 </div><!-- /main -->
 
-<!-- ════════════════════════ FORMAT PICKER MODAL ════════════════════════ -->
+<!-- ======= FORMAT PICKER MODAL ======= -->
 <div id="fmt-modal-bg" class="modal-bg hidden">
   <div class="modal" style="min-width:560px;max-width:600px">
     <h3>Choose Script Format</h3>
@@ -411,18 +411,18 @@ https://github.com/nodeca/pako/blob/main/LICENSE
         <div class="fmt-card-icon">&#x1F4E6;</div>
         <div class="fmt-card-title">Both Formats</div>
         <div class="fmt-card-sub">All files generated</div>
-        <div class="fmt-card-files">Action.c · main.js<br>vuser_init.c<br>vuser_end.c · globals.h</div>
+        <div class="fmt-card-files">Action.c &#xB7; main.js<br>vuser_init.c<br>vuser_end.c . globals.h</div>
       </div>
 
     </div>
     <div class="modal-actions">
       <button class="btn btn-muted btn-sm" id="fmt-cancel-btn" onclick="closeFmtModal()">Cancel</button>
-      <button class="btn btn-primary btn-sm" onclick="confirmFmt()">Continue →</button>
+      <button class="btn btn-primary btn-sm" onclick="confirmFmt()">Continue &rarr;</button>
     </div>
   </div>
 </div>
 
-<!-- ═══════════════════════════════ MODAL ════════════════════════════════ -->
+<!-- ======= MODAL ======= -->
 <div id="modal-bg" class="modal-bg hidden">
   <div class="modal">
     <h3>Create Transaction</h3>
@@ -440,13 +440,13 @@ https://github.com/nodeca/pako/blob/main/LICENSE
 </div>
 
 <script>
-// ═══════════════════════════════════════════════════════════════════════════
+// ===========================================================================
 // STATE
-// ═══════════════════════════════════════════════════════════════════════════
+// ===========================================================================
 const S = {
   entries: [],        // all parsed HAR entries
   txns: [],           // [{name, color}]
-  colorMap: {},       // txnName → color object
+  colorMap: {},       // txnName -> color object
   selMode: false,
   selIds: new Set(),
   tab: 'ac',
@@ -455,9 +455,9 @@ const S = {
   pendingHar: null,   // parsed HAR JSON waiting for format confirmation
   pendingNetLog: null,// parsed NetLog JSON waiting for format confirmation
   isNetLogSource: false, // true when loaded from chrome://net-export/ NetLog
-  domainFilter: {},   // hostname → true (include) | false (exclude)
-  domainStats: {},    // hostname → {count, size}
-  collapsed: {}       // txnName → true (collapsed) | false (expanded)
+  domainFilter: {},   // hostname -> true (include) | false (exclude)
+  domainStats: {},    // hostname -> {count, size}
+  collapsed: {}       // txnName -> true (collapsed) | false (expanded)
 };
 
 const COLORS = [
@@ -473,9 +473,9 @@ const COLORS = [
 
 const FILE_NAMES = {ac:'Action.c',mj:'main.js',vi:'vuser_init.c',ve:'vuser_end.c',gh:'globals.h'};
 
-// ═══════════════════════════════════════════════════════════════════════════
+// ===========================================================================
 // FILE LOADING
-// ═══════════════════════════════════════════════════════════════════════════
+// ===========================================================================
 function onFilePick(e){ const f=e.target.files[0]; if(f) readFile(f); }
 function onDrop(e){
   e.preventDefault();
@@ -507,7 +507,7 @@ function readFile(file){
   r.readAsText(file);
 }
 
-// ─── NetLog detection & parsing ────────────────────────────────────────────
+// --- NetLog detection & parsing --------------------------------------------
 // chrome://net-export/ produces a JSON with a top-level "constants" key that
 // contains logEventTypes and a flat "events" array.
 function isNetLog(obj){
@@ -529,8 +529,8 @@ function parseNetLogHeaderBlock(raw){
 }
 
 function parseNetLog(netlog){
-  const evTypes=netlog.constants.logEventTypes;      // name → number
-  // Build reverse map: number → name
+  const evTypes=netlog.constants.logEventTypes;      // name -> number
+  // Build reverse map: number -> name
   const evNames={};
   for(const [name,num] of Object.entries(evTypes)) evNames[num]=name;
 
@@ -665,9 +665,9 @@ function parseNetLog(netlog){
   return entries;
 }
 
-// ═══════════════════════════════════════════════════════════════════════════
+// ===========================================================================
 // HAR PROCESSING
-// ═══════════════════════════════════════════════════════════════════════════
+// ===========================================================================
 function processHAR(har){
   S.entries=[]; S.txns=[]; S.colorMap={}; S.selIds.clear(); S.selMode=false;
   S.isNetLogSource=false;
@@ -732,9 +732,9 @@ function processNetLog(netlog){
   showScript();
 }
 
-// ═══════════════════════════════════════════════════════════════════════════
+// ===========================================================================
 // TRANSACTION MARKER DETECTION
-// ═══════════════════════════════════════════════════════════════════════════
+// ===========================================================================
 function detectMarkers(){
   S.txns=[]; S.colorMap={};
   let cIdx=0;
@@ -769,9 +769,9 @@ function detectMarkers(){
   }
 }
 
-// ═══════════════════════════════════════════════════════════════════════════
+// ===========================================================================
 // FILTERS
-// ═══════════════════════════════════════════════════════════════════════════
+// ===========================================================================
 const STATIC_CT=new Set([
   'image/png','image/jpeg','image/jpg','image/gif','image/svg+xml','image/webp',
   'image/x-icon','image/vnd.microsoft.icon','image/bmp',
@@ -789,12 +789,12 @@ function applyFilters(){
 
   for(const e of S.entries){
     if(e.isMarker){e.filtered=false;continue;}
-    // Filter CSP violation reports — browser auto-sends these when our bookmarklet
+    // Filter CSP violation reports  -  browser auto-sends these when our bookmarklet
     // .invalid marker URLs are blocked by the app's Content Security Policy
     const reqCt=(e.hdrsMap['content-type']||'').split(';')[0].trim().toLowerCase();
     if(reqCt==='application/csp-report'||reqCt==='application/reports+json'){e.filtered=true;continue;}
     if(e.body&&e.body.text&&e.body.text.includes('"blocked-uri"')){e.filtered=true;continue;}
-    // Filter WebSocket upgrade requests — wss:// and ws:// cannot be replayed by VuGen
+    // Filter WebSocket upgrade requests  -  wss:// and ws:// cannot be replayed by VuGen
     // Web HTTP/HTML protocol; including them causes 400 Bad Request errors
     if(/^wss?:\/\//i.test(e.url)){e.filtered=true;continue;}
     // Domain filter (unchecked domains are excluded)
@@ -818,9 +818,9 @@ function refresh(){
   applyFilters(); buildScripts(); renderTable(); renderStats(); showScript();
 }
 
-// ═══════════════════════════════════════════════════════════════════════════
+// ===========================================================================
 // RENDER TABLE
-// ═══════════════════════════════════════════════════════════════════════════
+// ===========================================================================
 function renderTable(){
   let html='';
   for(const e of S.entries){
@@ -833,7 +833,7 @@ function renderTable(){
 }
 
 // Toggle a single transaction group collapsed/expanded.
-// row — the clicked .txn-start <tr> element (passed via onclick="toggleTxn(this)")
+// row  -  the clicked .txn-start <tr> element (passed via onclick="toggleTxn(this)")
 function toggleTxn(row){
   const name=row.dataset.grp;
   S.collapsed[name]=!S.collapsed[name];
@@ -855,13 +855,13 @@ function applyCollapse(){
       collapsed=!!(S.collapsed[currentGrp]);
       // Update arrow
       const arrow=row.querySelector('.txn-arrow');
-      if(arrow) arrow.textContent=collapsed?'▶':'▼';
+      if(arrow) arrow.textContent=collapsed?'>':'v';
       row.style.display='';
     } else if(row.classList.contains('txn-end')){
       row.style.display=collapsed?'none':'';
       currentGrp=null; collapsed=false;
     } else {
-      // request row — hide if inside a collapsed group
+      // request row  -  hide if inside a collapsed group
       row.style.display=(currentGrp&&collapsed)?'none':'';
     }
   }
@@ -889,14 +889,14 @@ function updateCollapseAllBtn(){
   if(!btn) return;
   btn.style.display=S.txns.length?'':'none';
   const anyExpanded=S.txns.some(t=>!S.collapsed[t.name]);
-  btn.textContent=anyExpanded?'⊖ Collapse All':'⊕ Expand All';
+  btn.textContent=anyExpanded?'- Collapse All':'+ Expand All';
 }
 
 function markerRow(e){
   const c=S.colorMap[e.txnName]||COLORS[0];
   const border=e.markerType==='start'?'border-top':'border-bottom';
   if(e.markerType==='start'){
-    const arrow=S.collapsed[e.txnName]?'▶':'▼';
+    const arrow=S.collapsed[e.txnName]?'>':'v';
     return `<tr class="txn-start" data-grp="${esc(e.txnName)}" style="background:${c.bg};${border}:2px solid ${c.bd};cursor:pointer;user-select:none" onclick="toggleTxn(this)">
       <td colspan="7" style="color:${c.tx};font-weight:700;font-size:11px;letter-spacing:.4px">
         <span class="txn-arrow" style="display:inline-block;width:14px;text-align:center">${arrow}</span> START: ${esc(e.txnName)}
@@ -904,7 +904,7 @@ function markerRow(e){
   } else {
     return `<tr class="txn-end" data-grp="${esc(e.txnName)}" style="background:${c.bg};${border}:2px solid ${c.bd}">
       <td colspan="7" style="color:${c.tx};font-weight:700;font-size:11px;letter-spacing:.4px">
-        <span style="display:inline-block;width:14px;text-align:center">■</span> END: ${esc(e.txnName)}
+        <span style="display:inline-block;width:14px;text-align:center">#</span> END: ${esc(e.txnName)}
       </td></tr>`;
   }
 }
@@ -927,7 +927,7 @@ function entryRow(e){
   const sel=S.selIds.has(e.id)?'row-sel':'';
   const selable=S.selMode&&!e.filtered?'selectable':'';
 
-  const urlShort=e.url.length>75?e.url.substring(0,75)+'…':e.url;
+  const urlShort=e.url.length>75?e.url.substring(0,75)+'...':e.url;
 
   return `<tr id="r${e.id}" class="${dim} ${sel} ${selable}" data-grp="${esc(e.txn||'')}"
     style="${rowBg}" onclick="rowClick(${e.id})" title="${esc(e.url)}">
@@ -951,9 +951,9 @@ function renderStats(){
   document.getElementById('netlog-banner').classList.toggle('hidden', !S.isNetLogSource);
 }
 
-// ═══════════════════════════════════════════════════════════════════════════
-// SCRIPT GENERATION — Web HTTP/HTML (Action.c)
-// ═══════════════════════════════════════════════════════════════════════════
+// ===========================================================================
+// SCRIPT GENERATION  -  Web HTTP/HTML (Action.c)
+// ===========================================================================
 function genActionC(){
   const nc={};
   function name(url){
@@ -971,34 +971,34 @@ function genActionC(){
     nc[n]=1; return n;
   }
 
-  // ── Header analysis: determine universal (auto) vs per-request headers ────
-  // Headers handled by VuGen attributes or managed internally — never emit via web_add_header
+  // -- Header analysis: determine universal (auto) vs per-request headers ----
+  // Headers handled by VuGen attributes or managed internally  -  never emit via web_add_header
   const SKIP_HDR_AC=new Set([
-    // VuGen attributes handle these — never emit via web_add_header
-    'referer',          // → "Referer=" attribute in web_url / web_custom_request
-    'content-type',     // → "EncType=" attribute (or auto for web_submit_data ITEMDATA)
+    // VuGen attributes handle these  -  never emit via web_add_header
+    'referer',          // -> "Referer=" attribute in web_url / web_custom_request
+    'content-type',     // -> "EncType=" attribute (or auto for web_submit_data ITEMDATA)
     'content-length',   // computed automatically by VuGen engine
     'host',             // always added by VuGen from the URL
     'connection',       // HTTP keep-alive managed by VuGen internally
-    'keep-alive',       // same — connection persistence managed by VuGen
+    'keep-alive',       // same  -  connection persistence managed by VuGen
     'transfer-encoding',// chunked encoding handled by VuGen
     'upgrade-insecure-requests', // browser-only security hint
-    'expect',           // 100-continue — connection-level, not needed in scripts
+    'expect',           // 100-continue  -  connection-level, not needed in scripts
     'cookie','cookie2', // managed by VuGen cookie jar
     'te','trailer',     // HTTP/1.1 connection-level
     'via',              // proxy-inserted, irrelevant to load test
-    'dnt',              // Do Not Track — browser privacy hint
+    'dnt',              // Do Not Track  -  browser privacy hint
     'accept-encoding',  // VuGen handles gzip/deflate/br decompression automatically
-    'priority',         // HTTP/2 urgency hint — not applicable to VuGen protocol layer
-    // Conditional / cache headers — not needed in scripted replay
+    'priority',         // HTTP/2 urgency hint  -  not applicable to VuGen protocol layer
+    // Conditional / cache headers  -  not needed in scripted replay
     'x-forwarded-for',
     'if-none-match','if-modified-since','if-unmodified-since','if-match',
     'cache-control','pragma',
-    // Browser client hints / fetch metadata — browser-generated, meaningless in load test
+    // Browser client hints / fetch metadata  -  browser-generated, meaningless in load test
     'sec-ch-ua','sec-ch-ua-mobile','sec-ch-ua-platform',
     'sec-fetch-dest','sec-fetch-mode','sec-fetch-site','sec-fetch-user'
   ]);
-  // Convert "accept-language" → "Accept-Language" — split on hyphen, capitalise first char, rejoin
+  // Convert "accept-language" -> "Accept-Language"  -  split on hyphen, capitalise first char, rejoin
   function hdrTitleCase(n){ return n.split('-').map(w=>w?w[0].toUpperCase()+w.slice(1):w).join('-'); }
   // Count header name+value occurrences across all visible (non-filtered, non-marker) entries
   const visEntries=S.entries.filter(e=>!e.filtered&&!e.isMarker);
@@ -1011,7 +1011,7 @@ function genActionC(){
       hdrFreq[k].set(h.value,(hdrFreq[k].get(h.value)||0)+1);
     }
   }
-  // Headers appearing with the same value in ≥80% of entries → web_add_auto_header (global)
+  // Headers appearing with the same value in >=80% of entries -> web_add_auto_header (global)
   const autoHdrs={};
   const aThresh=Math.max(1,Math.ceil(visEntries.length*0.8));
   for(const [k,valMap] of Object.entries(hdrFreq)){
@@ -1019,7 +1019,7 @@ function genActionC(){
   }
 
   let o='Action()\n{\n\n\tweb_set_sockets_option("SSL_VERSION", "AUTO");\n\n';
-  // Global headers (same value on every request) — set once with web_add_auto_header
+  // Global headers (same value on every request)  -  set once with web_add_auto_header
   for(const [k,v] of Object.entries(autoHdrs)){
     o+=`\tweb_add_auto_header("${hdrTitleCase(k)}", "${escJs(v)}");\n`;
   }
@@ -1072,17 +1072,17 @@ function genActionC(){
         ? (isBinary ? escBodyBinary(rawBodyText)
                     : rawBodyText.replace(/\\/g,'\\\\').replace(/"/g,'\\"').replace(/\r?\n/g,'\\n').replace(/\t/g,'\\t'))
         : '';
-      // NetLog source: POST body was not captured — emit TODO comment
+      // NetLog source: POST body was not captured  -  emit TODO comment
       if(e._fromNetLog && !body){
-        o+=`\t// TODO: POST body not available in NetLog — add BodyBinary= with your recorded request body\n`;
+        o+=`\t// TODO: POST body not available in NetLog - add BodyBinary= with your recorded request body\n`;
       }
       o+=`\tweb_custom_request("${n}",\n\t\t"URL=${e.url}",\n\t\t"Method=${e.method}",\n`;
       o+=`\t\t"Resource=0",\n\t\t"RecContentType=${ct}",\n`;
       o+=`\t\t"Referer=${ref}",\n\t\t"Snapshot=${sn}",\n\t\t"Mode=HTML",\n`;
       o+=`\t\t"EncType=${encType}",\n`;
       if(body){
-        // Smart chunking — never break inside an escape sequence (\xHH, \X).
-        // Splitting mid-escape produces invalid C hex literals e.g. "\xC""3..." → wrong byte.
+        // Smart chunking  -  never break inside an escape sequence (\xHH, \X).
+        // Splitting mid-escape produces invalid C hex literals e.g. "\xC""3..." -> wrong byte.
         const bodyAttr=isBinary?'BodyBinary':'Body';
         const CHUNK=200;
         if(body.length<=CHUNK){
@@ -1115,13 +1115,13 @@ function genActionC(){
   return o;
 }
 
-// ═══════════════════════════════════════════════════════════════════════════
-// SCRIPT GENERATION — DevWeb (main.js)
-// ═══════════════════════════════════════════════════════════════════════════
+// ===========================================================================
+// SCRIPT GENERATION  -  DevWeb (main.js)
+// ===========================================================================
 // Headers never included anywhere (browser-internal / connection-level)
 const SKIP_HDRS=new Set([
   'host','content-length','connection',
-  // Cookie headers — managed by DevWeb SDK cookie jar automatically
+  // Cookie headers  -  managed by DevWeb SDK cookie jar automatically
   'cookie','cookie2',
   'sec-ch-ua','sec-ch-ua-mobile','sec-ch-ua-platform',
   'sec-fetch-dest','sec-fetch-mode','sec-fetch-site','sec-fetch-user',
@@ -1168,7 +1168,7 @@ function genMainJS(){
     'accept-language':'en-US,en;q=0.9'
   };
 
-  // ── initialize ────────────────────────────────────────────────────────────
+  // -- initialize ------------------------------------------------------------
   o+='load.initialize("init", async function() {\n';
   o+='    load.log("\uD83D\uDE80 Initializing Vuser " + load.config.user.userId, load.LogLevel.info);\n\n';
   o+='    // Initialize global variables for correlated dynamic values\n';
@@ -1177,9 +1177,9 @@ function genMainJS(){
   o+='    load.log("\u2713 Initialization complete", load.LogLevel.info);\n';
   o+='});\n\n';
 
-  // ── action ────────────────────────────────────────────────────────────────
+  // -- action ----------------------------------------------------------------
   o+='load.action("Action", async function() {\n';
-  o+='    load.log("▶️  Starting action - Iteration " + load.config.runtime.iteration, load.LogLevel.info);\n\n';
+  o+='    load.log("> Starting action - Iteration " + load.config.runtime.iteration, load.LogLevel.info);\n\n';
 
   // Default request options
   o+='    // Set default request options (applies to all requests)\n';
@@ -1199,7 +1199,7 @@ function genMainJS(){
     o+='\n';
   }
 
-  // Process entries — all requests in one action, transactions started/stopped inline
+  // Process entries  -  all requests in one action, transactions started/stopped inline
   let currentTxn=null; // {name, tsNum}
 
   for(const e of S.entries){
@@ -1208,7 +1208,7 @@ function genMainJS(){
         const idx=S.txns.findIndex(t=>t.name===e.txnName);
         const tsNum=String(idx+1).padStart(2,'0');
         currentTxn={name:e.txnName,tsNum};
-        o+=`    // ── TS${tsNum}: ${e.txnName} ${'─'.repeat(Math.max(0,50-e.txnName.length))}\n`;
+        o+=`    // -- TS${tsNum}: ${e.txnName} ${'-'.repeat(Math.max(0,50-e.txnName.length))}\n`;
         o+=`    TS${tsNum}.start();\n\n`;
       } else {
         if(currentTxn){
@@ -1245,7 +1245,7 @@ function genMainJS(){
     if(e.body&&e.body.text){
       o+=`        "body": \`${escTpl(e.body.text)}\`,\n`;
     } else if(e._fromNetLog && e.method!=='GET' && e.method!=='HEAD'){
-      o+=`        // TODO: POST body not available in NetLog — add "body" property with your recorded request body\n`;
+      o+=`        // TODO: POST body not available in NetLog - add "body" property with your recorded request body\n`;
     }
     o+=`    }).sendSync();\n`;
     o+=`    load.log(\`${rn} - Status: \${${varN}.status}\`, load.LogLevel.info);\n\n`;
@@ -1264,7 +1264,7 @@ function genMainJS(){
   o+='    load.log("\u2713 Action complete", load.LogLevel.info);\n';
   o+='});\n\n';
 
-  // ── finalize ──────────────────────────────────────────────────────────────
+  // -- finalize --------------------------------------------------------------
   o+='load.finalize("finalize", async function() {\n';
   o+='    load.log("\uD83C\uDFC1 Finalizing Vuser " + load.config.user.userId, load.LogLevel.info);\n\n';
   o+='    // Cleanup code here if needed\n\n';
@@ -1273,9 +1273,9 @@ function genMainJS(){
   return o;
 }
 
-// ═══════════════════════════════════════════════════════════════════════════
+// ===========================================================================
 // OTHER GENERATED FILES
-// ═══════════════════════════════════════════════════════════════════════════
+// ===========================================================================
 function genVuserInit(){ return 'vuser_init()\n{\n\treturn 0;\n}\n'; }
 function genVuserEnd() { return 'vuser_end()\n{\n\treturn 0;\n}\n'; }
 function genGlobalsH(){
@@ -1298,9 +1298,9 @@ function buildScripts(){
   if(isDev){ S.scripts.mj=genMainJS(); }
 }
 
-// ═══════════════════════════════════════════════════════════════════════════
+// ===========================================================================
 // SCRIPT PREVIEW
-// ═══════════════════════════════════════════════════════════════════════════
+// ===========================================================================
 function switchTab(el,tab){
   document.querySelectorAll('.code-tab').forEach(t=>t.classList.remove('act'));
   el.classList.add('act');
@@ -1308,12 +1308,12 @@ function switchTab(el,tab){
 }
 function showScript(){
   document.getElementById('code-body').textContent =
-    S.scripts[S.tab]||'// No content — load a HAR file first';
+    S.scripts[S.tab]||'// No content  -  load a HAR file first';
 }
 
-// ═══════════════════════════════════════════════════════════════════════════
+// ===========================================================================
 // DOWNLOAD
-// ═══════════════════════════════════════════════════════════════════════════
+// ===========================================================================
 function dl(key){
   const c=S.scripts[key];
   if(!c){alert('Load a HAR file first.');return;}
@@ -1321,9 +1321,9 @@ function dl(key){
   a.href=URL.createObjectURL(new Blob([c],{type:'text/plain'}));
   a.download=FILE_NAMES[key]; a.click();
 }
-// ═══════════════════════════════════════════════════════════════════════════
+// ===========================================================================
 // STATIC PROJECT FILE TEMPLATES
-// ═══════════════════════════════════════════════════════════════════════════
+// ===========================================================================
 const WEB_DEFAULT_CFG =
 `[General]
 XlBridgeTimeout=120
@@ -1331,33 +1331,162 @@ DefaultRunLogic=default.usp
 automatic_nested_transactions=1
 AutomaticTransactions=1
 Encoding=ANSI
+ContinueOnError=0
+FailTransOnErrorMsg=0
+AutomaticTransactionsPerFunc=0
+UseThreads=1
+Replay64bit=0
+AccessVTSPortByQueryString=0
+VTSHTTPAccessPort=80
+VTSHTTPSAccessPort=443
+
 [ThinkTime]
 Options=NOTHINK
 Factor=1
 LimitFlag=0
 Limit=1
+ThinkTimeRandomLow=50
+ThinkTimeRandomHigh=150
+
 [Iterations]
 NumOfIterations=1
 IterationPace=IterationASAP
 StartEvery=60
 RandomMin=60
 RandomMax=90
+
 [Log]
 LogOptions=LogBrief
 MsgClassData=0
 MsgClassParameters=0
 MsgClassFull=0
+AutoLog=0
+AutoLogBufferSize=1
+LogDetail=0
+IncludeEnvInfo=1
+PrintTimeStamp=0
+
 [WEB]
 SearchForImages=1
 WebRecorderVersion=10
 MaxConnections=0
 HttpVer=1.1
-ResetContext=True
-KeepAlive=Yes
+ResetContext=1
+KeepAlive=1
 EnableChecks=0
 ProxyUseBrowser=0
 ProxyUseProxy=0
 SaveSnapshotResources=1
+SnapshotOnErrorActive=0
+UseBrowserAgent=0
+UseCustomAgent=1
+Browser_Type=Microsoft Internet Explorer
+BrowserVer=10.0
+BrowserPlatform=Windows
+BrowserLanguageCode=
+BrowserUserAgent=Mozilla/5.0 (compatible; MSIE 10.0; Windows; Trident/6.0)
+CustomUserAgent=Mozilla/5.0 (compatible; MSIE 10.0; Windows NT 6.1; Trident/6.0)
+SimulateCache=1
+CacheHtmlPages=1
+IgnoreContentCachingTypes=1
+KeepNonTextMimeType=text/xml;text/plain
+CacheAlwaysCheckForNewerPages=0
+ClearCacheForSimulateNewUser=1
+SimulatePrefetchPrerender=0
+DisableAED=0
+ProxyUseAutoConfigScript=0
+ProxyAutoConfigScriptURL=
+ProxyUseProxyServer=0
+ProxyHTTPHost=
+ProxyHTTPPort=
+ProxyHTTPSHost=
+ProxyHTTPSPort=
+ProxyUseSame=0
+ProxyBypass=
+ProxyNoLocal=0
+ProxyUserName=
+ProxyPasswordIsEncrypted=false
+GraphHitsPerSecondHttpStatusCodes=1
+GraphPagesPerSecond=0
+GraphBytesPerSecond=1
+WinInetReplay=0
+AutoTransFileLine=1
+FailNonCriticalItem=0
+EnableDynatrace=0
+HTTPVer=1.1
+EnableHTTP2=1
+BrowserAcceptLanguage=None
+HttpErrorsAsWarnings=0
+ConnectTimeout=120
+ReceiveTimeout=120
+KeepAliveTimeout=60
+ZlibHeadersInCompressedRequestBody=0
+BrowserAcceptEncoding=gzip, deflate, br
+DeleteCacheUnreferencedIterations=1
+EnableSnapshotsInReplay=1
+EnableIPCache=0
+UTF8InputOutput=0
+SupportCharset=None
+ResourcePageTimeoutIsWarning=0
+ParseHtmlContentType=TEXT
+PageDownloadTimeout=120
+NetBufSize=12288
+PrintNTLMLog=0
+PrintSSLLog=0
+SSLVersionKey=0
+OpensslEngineType=0
+OpenSSL3CompatibleConnection=0
+MaxErrorMatchesAsERRORS=10
+MaxRedirectionDepth=10
+MaxSelfMetaRefreshCount=2
+AedUtf8Values=0
+TreeViewRequestBodyLimit=2047
+IPVersionPolicy=2
+WebSyncRetryIntervalMs=1000
+WebSyncRetryTimeoutMs=3000
+WebSocketCallBackTimerIntervalMS=500
+PrefetchPrerenderCallBackTimerIntervalMS=500
+Retry401ThinkTime=0
+DisableNTLM2SS=0
+UseNativeNTLM=0
+OverrideNTLMCreds=0
+IntegratedAuthentication=0
+HeavyKDCLoad=0
+SPNCNameLookup=0
+SPNAddNoneDefPort=0
+LoadChilEngine=0
+PrintBufLineLen=99
+PrintBufEscape0=0
+LogEnableResponseLimit=0
+LogMaxResponseSize=100
+EnableJsForTransport=0
+JsForTransportRuntimeSize=51200
+JsForTransportStackSize=32
+LogFileWrite=0
+LogFileWriteTraceToFile=0
+UseDataFormatExtensions=0
+
+[ModemSpeed]
+EnableCustomModemSpeed=0
+EnableModemSpeed=0
+ModemSpeed=128000
+CustomModemSpeed=1000
+
+[Streaming]
+SaveStreamSnapshot=0
+StreamLog=1
+StreamRetryTime=10
+StreamSeekMethod=ByVideoSize
+StreamTimeout=30
+
+[FILTERS]
+FilterType=1
+ExcludeFiltersInList=
+IncludeFiltersInList=
+
+[Java]
+UseExternalJVM=0
+ExternalJREPath=
 `;
 
 const WEB_DEFAULT_USP =
@@ -1527,9 +1656,9 @@ const DEVWEB_TSCONFIG_JSON =
 }
 `;
 
-// ═══════════════════════════════════════════════════════════════════════════
+// ===========================================================================
 // ZIP PROJECT GENERATORS
-// ═══════════════════════════════════════════════════════════════════════════
+// ===========================================================================
 function genUsrFile(scriptName){
   const txnNames = S.txns.map(t=>t.name);
   const orderLine = txnNames.length
@@ -1667,9 +1796,9 @@ async function dlZip(format){
   if(isDev) await makeDevWebZip();
 }
 
-// ═══════════════════════════════════════════════════════════════════════════
-// SELECT MODE — MANUAL TRANSACTION CREATION
-// ═══════════════════════════════════════════════════════════════════════════
+// ===========================================================================
+// SELECT MODE  -  MANUAL TRANSACTION CREATION
+// ===========================================================================
 function toggleSelMode(){
   S.selMode=!S.selMode;
   const btn=document.getElementById('btn-sel');
@@ -1746,9 +1875,9 @@ function confirmTxn(){
   buildScripts(); renderTable(); renderStats(); showScript();
 }
 
-// ═══════════════════════════════════════════════════════════════════════════
+// ===========================================================================
 // DOMAIN FILTER PANEL
-// ═══════════════════════════════════════════════════════════════════════════
+// ===========================================================================
 function buildDomainStats(){
   S.domainStats={};
   for(const e of S.entries){
@@ -1768,7 +1897,7 @@ function buildDomainStats(){
 
 function renderDomainPanel(search=''){
   const q=(search||'').trim().toLowerCase();
-  // Sort: unchecked first? No — sort by request count desc (most requests at top, like VuGen)
+  // Sort: unchecked first? No  -  sort by request count desc (most requests at top, like VuGen)
   const domains=Object.keys(S.domainStats)
     .filter(d=>!q||d.includes(q))
     .sort((a,b)=>S.domainStats[b].count-S.domainStats[a].count);
@@ -1820,11 +1949,11 @@ function toggleAllDomains(state){
   applyFilters(); buildScripts(); renderTable(); renderStats(); showScript();
 }
 
-// ═══════════════════════════════════════════════════════════════════════════
+// ===========================================================================
 // FORMAT PICKER
-// ═══════════════════════════════════════════════════════════════════════════
+// ===========================================================================
 function openFmtModal(fromToolbar){
-  // Show/hide Cancel button — only useful when already in main panel
+  // Show/hide Cancel button  -  only useful when already in main panel
   document.getElementById('fmt-cancel-btn').classList.toggle('hidden', !fromToolbar);
   // Highlight current selection
   ['webhttp','devweb','both'].forEach(f=>{
@@ -1886,9 +2015,9 @@ function applyFmtUI(){
   }
 }
 
-// ═══════════════════════════════════════════════════════════════════════════
+// ===========================================================================
 // NAVIGATION
-// ═══════════════════════════════════════════════════════════════════════════
+// ===========================================================================
 function showWelcome(){
   document.getElementById('welcome').classList.remove('hidden');
   document.getElementById('main').classList.add('hidden');
@@ -1905,9 +2034,9 @@ function clearAll(){
   showWelcome();
 }
 
-// ═══════════════════════════════════════════════════════════════════════════
+// ===========================================================================
 // UTILITIES
-// ═══════════════════════════════════════════════════════════════════════════
+// ===========================================================================
 function esc(s){ return(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
 function escJs(s){ return(s||'').replace(/\\/g,'\\\\').replace(/"/g,'\\"').replace(/\n/g,'\\n').replace(/\r/g,'\\r').replace(/\t/g,'\\t'); }
 function escTpl(s){ return(s||'').replace(/\\/g,'\\\\').replace(/`/g,'\\`').replace(/\$\{/g,'\\${'); }
@@ -1920,7 +2049,7 @@ function needsBinary(text){
   }
   return false;
 }
-// Escape body for BodyBinary= — encodes as C string safe for VuGen's attribute parser.
+// Escape body for BodyBinary=  -  encodes as C string safe for VuGen's attribute parser.
 // Non-ASCII chars are emitted as UTF-8 bytes using \xHH sequences.
 function escBodyBinary(text){
   let out='';
@@ -1961,16 +2090,16 @@ function fmtSize(b){
   return(b/1048576).toFixed(1)+'MB';
 }
 
-// ═══════════════════════════════════════════════════════════════════════════
+// ===========================================================================
 // RESIZABLE PANELS
-// ═══════════════════════════════════════════════════════════════════════════
+// ===========================================================================
 function setupResizer(rsId, side){
   const rs=document.getElementById(rsId);
   if(!rs) return;
   rs.addEventListener('mousedown',function(e){
     e.preventDefault();
-    // side='left'  → resize the pane to the LEFT of this resizer (domain-pane)
-    // side='right' → resize the pane to the RIGHT of this resizer (code-pane)
+    // side='left'  -> resize the pane to the LEFT of this resizer (domain-pane)
+    // side='right' -> resize the pane to the RIGHT of this resizer (code-pane)
     const pane = side==='left' ? rs.previousElementSibling : rs.nextElementSibling;
     const startX=e.clientX;
     const startW=pane.getBoundingClientRect().width;
@@ -1984,7 +2113,7 @@ function setupResizer(rsId, side){
       if(side==='left'){
         newW=Math.max(120, Math.min(420, startW+dx));
       } else {
-        // dragging right resizer left → code-pane grows; right → shrinks
+        // dragging right resizer left -> code-pane grows; right -> shrinks
         newW=Math.max(220, Math.min(900, startW-dx));
       }
       pane.style.width=newW+'px';
