@@ -1623,13 +1623,13 @@ function buildAutoFollowMap(entries) {
     if (prevI < 0) continue;
     const prev = entries[prevI];
     if (prev.status < 300 || (prev.status > 303 && prev.status !== 307)) continue;
-    const locHdr = (prev.respHdrs || []).find(h => h.name.toLowerCase() === 'location');
-    if (!locHdr) continue;
+    const locVal = (prev.respHdrsMap || {})['location'];
+    if (!locVal) continue;
     try {
-      const locAbsolute = new URL(locHdr.value, prev.url).href;
+      const locAbsolute = new URL(locVal, prev.url).href;
       if (locAbsolute === new URL(curr.url).href) autoFollowSet.add(i);
     } catch {
-      if (locHdr.value === curr.url || curr.url.endsWith(locHdr.value)) autoFollowSet.add(i);
+      if (locVal === curr.url || curr.url.endsWith(locVal)) autoFollowSet.add(i);
     }
   }
   // Also detect 401 challenge entries: same URL+method re-issued after 401.
