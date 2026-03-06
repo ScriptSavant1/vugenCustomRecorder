@@ -3648,9 +3648,17 @@ async function analyze(){
       // Performance testing from LRE load generators (Linux/Windows service accounts)
       // REQUIRES web_set_user() + Runtime Settings → Enable Integrated Authentication
       // because load generator machines do NOT have the user's Windows session.
+      // Well-known public TLDs — SSO servers on these are cloud/SaaS (form-based OAuth/OIDC).
+      // SSO servers on ANY OTHER TLD are corporate internal networks → Windows auth required.
+      // Examples of corporate internal TLDs: .local .internal .corp .intranet .mde .nwgrp .net1 etc.
+      const PUBLIC_TLD=/\.(com|org|net|io|co|app|dev|cloud|gov|edu|biz|info|tech|site|online|store|tv|me|us|uk|au|ca|de|fr|jp|sg|in|eu|nz|nl|se|no|fi|dk|be|at|ch|es|it|pl|cz|ru|br|mx|ar|cl|za|ae|sa|kw|qa)(\.[a-z]{2})?$/i;
+      // Known public Windows auth IdP hostnames (Azure AD / ADFS on Azure)
+      const AZURE_WIN_AUTH=/^(login\.microsoftonline\.com|sts\.windows\.net|login\.windows\.net|login\.live\.com)$/i;
+
       let ssoWindowsAuth=false;
       if(!S.auth){
         // Check 1: Negotiate or NTLM header on any entry whose host is in the SSO chain
+        // (Chrome DevTools sometimes omits these — checks below handle that gap)
         const negotiateOnSso=S.entries1.some(e=>{
           let h=''; try{h=new URL(e.url).hostname;}catch{return false;}
           if(!ssoHostSet.has(h)) return false;
@@ -3658,11 +3666,18 @@ async function analyze(){
           const wwwAuth=(e.respHdrsMap||{})['www-authenticate']||'';
           return /^(Negotiate|NTLM)\s/i.test(reqAuth)||/\b(Negotiate|NTLM)\b/i.test(wwwAuth);
         });
-        // Check 2: ADFS URL pattern → always Windows auth, no form-based alternative
+        // Check 2: ADFS URL pattern → always Windows auth
         const adfsInChain=ssoRedirects.some(e=>
           /\/adfs\/|\/wsfed/i.test(e.url)||/\/adfs\/|\/wsfed/i.test((e.respHdrsMap||{})['location']||'')
         );
-        if(negotiateOnSso||adfsInChain){
+        // Check 3: Any SSO hostname uses a non-public (corporate internal) TLD.
+        // Corporate internal networks (e.g. .mde .local .corp .internal .nwgrp) are never used
+        // by cloud SaaS SSO providers — this is a reliable indicator of Windows-authenticated SSO.
+        const corporateInternalSso=[...ssoHostSet].some(h=>!PUBLIC_TLD.test(h));
+        // Check 4: Known public Windows auth IdP (Azure AD)
+        const azureAdSso=[...ssoHostSet].some(h=>AZURE_WIN_AUTH.test(h));
+
+        if(negotiateOnSso||adfsInChain||corporateInternalSso||azureAdSso){
           // Set auth so web_set_user() + Runtime Settings are generated automatically
           const ssoRealm=(()=>{try{return new URL(ssoRedirects[0].url).hostname;}catch{return 'sso-server:443';}})();
           S.auth={type:'negotiate',realm:ssoRealm,hostport:ssoRealm};
