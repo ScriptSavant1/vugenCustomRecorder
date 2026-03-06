@@ -3621,15 +3621,80 @@ async function analyze(){
       S.params.unshift({name:'ServerHost',csvKey:'ServerHost',value:S.serverHost.host,usages:[]});
     }
 
-    // SSO / OAuth redirect chain detection — warn user and confirm correlation is in place
-    const SSO_URL_PATTERN=/\/oauth2?\/|\/oidc\/|\/as\/authoris|\/sso\/|\/saml\/|\/connect\/token|\.ping$|authorization\.oauth|\/login\?|\/auth\?|\.okta\.|\/adfs\/|\/realms\//i;
+    // SSO / OAuth redirect chain detection
+    // Patterns cover: PingFederate (/as/authorization), OAuth2, OIDC, SAML, ADFS, Okta, Keycloak,
+    // Azure AD (login.microsoftonline.com), response_type= / client_id= OAuth2 query params.
+    const SSO_URL_PATTERN=/\/oauth2?\/|\/oidc\/|\/as\/authoris|\/sso\/|\/saml\/|\/connect\/token|\.ping$|authorization\.oauth|response_type=|client_id=|\.okta\.|\/adfs\/|\/realms\/|login\.microsoftonline\.com/i;
     const redirectEntries=S.entries1.filter(e=>!e.filtered&&!e.isMarker&&e.status>=300&&e.status<400);
-    const ssoRedirects=redirectEntries.filter(e=>SSO_URL_PATTERN.test(e.url)||(e.respHdrsMap&&SSO_URL_PATTERN.test((e.respHdrsMap||{})['location']||'')));
+    const ssoRedirects=redirectEntries.filter(e=>
+      SSO_URL_PATTERN.test(e.url)||
+      SSO_URL_PATTERN.test((e.respHdrsMap||{})['location']||'')
+    );
     if(ssoRedirects.length>0){
-      const ssoMsg=`SSO/OAuth redirect chain detected (${ssoRedirects.length} redirect step${ssoRedirects.length>1?'s':''} — `+
-        `${ssoRedirects.map(e=>new URL(e.url).hostname).filter((h,i,a)=>a.indexOf(h)===i).join(', ')}). `+
-        `Dynamic tokens in redirect URLs are correlated automatically. `+
-        `The POST callback (form_post/id_token) must be included in the script — it is.`;
+      // Collect unique SSO hostnames for display and for targeted Windows-auth check below
+      const ssoHostSet=new Set(ssoRedirects.map(e=>{try{return new URL(e.url).hostname;}catch{return '';}}).filter(Boolean));
+      // Also add hostnames from Location headers of the SSO redirects
+      for(const e of ssoRedirects){
+        const loc=(e.respHdrsMap||{})['location']||'';
+        if(loc){try{ssoHostSet.add(new URL(loc).hostname);}catch{}}
+      }
+      const ssoHosts=[...ssoHostSet].join(', ');
+
+      // ── Windows auth detection specific to SSO servers ─────────────────────────
+      // Chrome/Edge DevTools HAR sometimes omits the Authorization: Negotiate header
+      // for SSO flows because the browser handles NTLM/Kerberos challenge-response
+      // transparently. detectAuth() above ran first — if it found nothing, check again
+      // explicitly on all entries (including filtered) that touch the SSO hostnames.
+      // Performance testing from LRE load generators (Linux/Windows service accounts)
+      // REQUIRES web_set_user() + Runtime Settings → Enable Integrated Authentication
+      // because load generator machines do NOT have the user's Windows session.
+      let ssoWindowsAuth=false;
+      if(!S.auth){
+        // Check 1: Negotiate or NTLM header on any entry whose host is in the SSO chain
+        const negotiateOnSso=S.entries1.some(e=>{
+          let h=''; try{h=new URL(e.url).hostname;}catch{return false;}
+          if(!ssoHostSet.has(h)) return false;
+          const reqAuth=(e.hdrsMap||{})['authorization']||'';
+          const wwwAuth=(e.respHdrsMap||{})['www-authenticate']||'';
+          return /^(Negotiate|NTLM)\s/i.test(reqAuth)||/\b(Negotiate|NTLM)\b/i.test(wwwAuth);
+        });
+        // Check 2: ADFS URL pattern → always Windows auth, no form-based alternative
+        const adfsInChain=ssoRedirects.some(e=>
+          /\/adfs\/|\/wsfed/i.test(e.url)||/\/adfs\/|\/wsfed/i.test((e.respHdrsMap||{})['location']||'')
+        );
+        if(negotiateOnSso||adfsInChain){
+          // Set auth so web_set_user() + Runtime Settings are generated automatically
+          const ssoRealm=(()=>{try{return new URL(ssoRedirects[0].url).hostname;}catch{return 'sso-server:443';}})();
+          S.auth={type:'negotiate',realm:ssoRealm,hostport:ssoRealm};
+          ssoWindowsAuth=true;
+          // AuthUsername/AuthPassword params: the main block above ran before SSO detection,
+          // so add them here if not already present.
+          if(!S.params.some(p=>p.csvKey==='AuthUsername')){
+            S.params.unshift(
+              {name:'AuthPassword',csvKey:'AuthPassword',value:'<enter_password>',usages:[]},
+              {name:'AuthUsername',csvKey:'AuthUsername',value:'<enter_username>',usages:[]}
+            );
+          }
+        }
+      } else if(['kerberos','ntlm','negotiate'].includes(S.auth.type)){
+        ssoWindowsAuth=true; // detectAuth() already found it in the main scan
+      }
+
+      // Build auth note for warning
+      const authNote=ssoWindowsAuth
+        ? `Windows authentication (${(S.auth&&S.auth.type||'negotiate').toUpperCase()}) detected on SSO servers — `+
+          `web_set_user() and Runtime Settings (Enable Integrated Authentication) are generated automatically. `+
+          `Set AuthUsername and AuthPassword in collection_data.csv to the load generator service account credentials `+
+          `(domain\\username format for NTLM, UPN format for Kerberos).`
+        : `No Windows authentication (NTLM/Kerberos) headers found on SSO servers — treating as form-based OAuth/OIDC login. `+
+          `If VuGen replays fail with 401 on the SSO page, your IdP uses Windows auth: `+
+          `add web_set_user("{AuthUsername}","{AuthPassword}","sso-server:443") at the top of Action.c.`;
+
+      const ssoMsg=
+        `SSO/OAuth redirect chain detected (${ssoRedirects.length} redirect step${ssoRedirects.length>1?'s':''} — ${ssoHosts}). `+
+        `Redirect tokens and state parameters are correlated automatically. `+
+        `${authNote} `+
+        `Verify manually: (1) login form POST is in the script, (2) OAuth callback POST (id_token/code) is in the script.`;
       S.harWarning=S.harWarning?(S.harWarning+' | '+ssoMsg):ssoMsg;
     }
 
