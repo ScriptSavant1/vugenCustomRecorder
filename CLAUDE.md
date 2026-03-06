@@ -106,6 +106,7 @@ S = {har1, har2, entries1, entries2, txns, correlations, candidates, params,
 - `findValueInResponse()` section 1b: tight LB/RB extraction from Location headers of 3xx responses (path segment and query param aware)
 - `singleHarCorrelate()` redirect pass at end: 3xx → Location → next URL dynamic segment detection
 - `analyze()` SSO warning: `SSO_URL_PATTERN` detects oauth2/oidc/sso/saml/Okta/ADFS/Keycloak in URLs and Location headers
+- **4-signal Windows-auth detection** after SSO found: (1) Negotiate/NTLM headers in HAR, (2) `/adfs/` or `/wsfed` URL, (3) **corporate non-public TLD** (`.mde`, `.local`, `.corp`, `.internal`) → `corporateInternalSso=true`, (4) Azure AD hostnames. Any signal → `S.auth={type:'negotiate'}` → `web_set_user()` + RTS + params in BOTH generators. This catches corporate IdPs (PingFederate, Shibboleth) even when Chrome omits Negotiate headers from HAR.
 
 ## Output Formats
 

@@ -842,9 +842,34 @@ This reminds developers that VuGen does auto-follow GET 302s in HTML mode. The r
 
 **SSO warning:** `analyze()` detects SSO flows via:
 ```javascript
-SSO_URL_PATTERN = /\/oauth2?\/|\/oidc\/|\/as\/authoris|\/sso\/|\/saml\/|\/connect\/token|\.ping$|authorization\.oauth|\/login\?|\/auth\?|\.okta\.|\/adfs\/|\/realms\//i
+SSO_URL_PATTERN = /\/oauth2?\/|\/oidc\/|\/as\/authoris|\/sso\/|\/saml\/|\/connect\/token|\.ping$|authorization\.oauth|response_type=|client_id=|\.okta\.|\/adfs\/|\/realms\/|login\.microsoftonline\.com/i
 ```
-If matched, a warning is added to `S.harWarning` explaining the redirect chain and confirming it is handled.
+Note: `/login\?` and `/auth\?` were removed (too broad — match any app login redirect). `response_type=` and `client_id=` are OAuth2-specific query params; `login.microsoftonline.com` covers Azure AD.
+
+If matched, a warning is added to `S.harWarning` explaining the redirect chain. The warning text adapts based on **Windows-auth detection** (see below).
+
+### Windows-Auth Detection for SSO (4-Signal — Phase 18)
+
+LRE load generators (Linux/Windows service accounts: RBSRE01, europa logins) do NOT have the user's Windows session. Chrome/Edge also omits `Authorization: Negotiate` headers from HAR because browsers handle NTLM/Kerberos transparently. Therefore the tool uses 4 independent signals after an SSO redirect chain is found:
+
+| Check | Signal | Example |
+|---|---|---|
+| **1** | `Authorization: Negotiate/NTLM` or `WWW-Authenticate: Negotiate/NTLM` on any SSO hostname entry | Sometimes present in HAR |
+| **2** | SSO URL or Location header contains `/adfs/` or `/wsfed` | ADFS is always Windows auth |
+| **3** | SSO hostname has a **non-public TLD** (`.mde`, `.local`, `.corp`, `.internal`, etc.) | Corporate internal = Windows auth regardless of IdP |
+| **4** | SSO hostname is a known Azure AD endpoint (`login.microsoftonline.com`, `sts.windows.net`, etc.) | Azure AD with enterprise tenant = Windows auth |
+
+If ANY signal is true → `S.auth = {type:'negotiate', realm:ssoHostname, hostport:ssoHostname}` → `web_set_user()` + RTS + `AuthUsername`/`AuthPassword` params generated automatically.
+
+**Corporate TLD regex (Check 3):**
+```javascript
+const PUBLIC_TLD = /\.(com|org|net|io|co|app|dev|cloud|gov|edu|biz|info|tech|site|online|store|tv|me|us|uk|au|ca|de|fr|jp|sg|in|eu|nz|nl|se|no|fi|dk|be|at|ch|es|it|pl|cz|ru|br|mx|ar|cl|za|ae|sa|kw|qa)(\.[a-z]{2})?$/i;
+// hostname NOT matching PUBLIC_TLD → corporate internal → Windows auth assumed
+```
+
+**Warning message adapts dynamically:**
+- Windows auth detected: "Windows authentication (NEGOTIATE) detected — `web_set_user()` and Runtime Settings generated. Set credentials in collection_data.csv (domain\\user for NTLM, UPN for Kerberos)."
+- No Windows auth: "No Windows authentication headers found — treating as form-based OAuth/OIDC. All redirect requests are included. If VuGen replays fail with 401/403, add `web_set_user()` manually."
 
 ### `id_token` in form_post
 

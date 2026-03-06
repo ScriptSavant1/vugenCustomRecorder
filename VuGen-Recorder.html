@@ -968,6 +968,51 @@ function renderStats(){
 }
 
 // ===========================================================================
+// AUTO-FOLLOW REDIRECT DETECTION
+// ===========================================================================
+// Returns Set of entry indices that VuGen reaches via automatic redirect-following.
+// These can be omitted from generated scripts — VuGen follows them automatically.
+// Recorder entries use respHdrsMap (flat object with lowercase keys).
+function buildAutoFollowMap(entries) {
+  const autoFollowSet = new Set();
+  for (let i = 1; i < entries.length; i++) {
+    const curr = entries[i];
+    if (curr.filtered || curr.isMarker) continue;
+    let prevI = i - 1;
+    while (prevI >= 0 && (entries[prevI].filtered || entries[prevI].isMarker)) prevI--;
+    if (prevI < 0) continue;
+    const prev = entries[prevI];
+    if (prev.status < 300 || (prev.status > 303 && prev.status !== 307)) continue;
+    const locVal = prev.respHdrsMap && (prev.respHdrsMap['location'] || prev.respHdrsMap['Location']);
+    if (!locVal) continue;
+    try {
+      const locAbsolute = new URL(locVal, prev.url).href;
+      if (locAbsolute === new URL(curr.url).href) autoFollowSet.add(i);
+    } catch {
+      if (locVal === curr.url || curr.url.endsWith(locVal)) autoFollowSet.add(i);
+    }
+  }
+  // Also detect 401 challenge entries: same URL+method re-issued after 401.
+  // VuGen handles 401→Negotiate/NTLM automatically via web_set_user() — skip the 401 entry,
+  // keep only the successful (non-401) response entry.
+  for (let i = 0; i < entries.length - 1; i++) {
+    const curr = entries[i];
+    if (curr.filtered || curr.isMarker || curr.status !== 401) continue;
+    let nextI = i + 1;
+    while (nextI < entries.length && (entries[nextI].filtered || entries[nextI].isMarker)) nextI++;
+    if (nextI >= entries.length) continue;
+    const next = entries[nextI];
+    try {
+      if (new URL(next.url).href === new URL(curr.url).href && next.method === curr.method)
+        autoFollowSet.add(i);
+    } catch {
+      if (next.url === curr.url && next.method === curr.method) autoFollowSet.add(i);
+    }
+  }
+  return autoFollowSet;
+}
+
+// ===========================================================================
 // SCRIPT GENERATION  -  Web HTTP/HTML (Action.c)
 // ===========================================================================
 function genActionC(){
@@ -1089,8 +1134,10 @@ function genActionC(){
   }
   if(Object.keys(autoHdrs).length) o+='\n';
   let snap=1;
+  const acAutoFollowSet=buildAutoFollowMap(S.entries);
 
-  for(const e of S.entries){
+  for(let idx=0;idx<S.entries.length;idx++){
+    const e=S.entries[idx];
     if(e.isMarker){
       if(e.markerType==='start')
         o+=`\tlr_start_transaction("${e.txnName}");\n\n`;
@@ -1102,8 +1149,13 @@ function genActionC(){
     }
     if(e.filtered) continue;
 
-    if(e.status>=300&&e.status<400)
-      o+=`\t// HTTP ${e.status} redirect — VuGen follows subsequent redirects automatically\n`;
+    // Skip auto-follow redirect (300-303/307) and 401 challenge entries — VuGen handles automatically
+    if(acAutoFollowSet.has(idx)){
+      o+=`\t// HTTP ${e.status} → VuGen auto-follows redirect to ${e.url} (omitted)\n`;
+      continue;
+    }
+    // Count auto-follows triggered by this entry
+    {let _j=idx+1,_fc=0; while(_j<S.entries.length&&acAutoFollowSet.has(_j)){_fc++;_j++;} if(_fc>0) o+=`\t// Note: VuGen auto-follows ${_fc} redirect(s) after this request\n`;}
 
     const n=name(e.url);
     const ct=e.ct||'text/html';
@@ -1308,12 +1360,14 @@ function genMainJS(){
 
   // Process entries  -  all requests in one action, transactions started/stopped inline
   let currentTxn=null; // {name, tsNum}
+  const mjAutoFollowSet=buildAutoFollowMap(S.entries);
 
-  for(const e of S.entries){
+  for(let idx=0;idx<S.entries.length;idx++){
+    const e=S.entries[idx];
     if(e.isMarker){
       if(e.markerType==='start'){
-        const idx=S.txns.findIndex(t=>t.name===e.txnName);
-        const tsNum=String(idx+1).padStart(2,'0');
+        const txIdx=S.txns.findIndex(t=>t.name===e.txnName);
+        const tsNum=String(txIdx+1).padStart(2,'0');
         currentTxn={name:e.txnName,tsNum};
         o+=`    // -- TS${tsNum}: ${e.txnName} ${'-'.repeat(Math.max(0,50-e.txnName.length))}\n`;
         o+=`    TS${tsNum}.start();\n\n`;
@@ -1327,8 +1381,13 @@ function genMainJS(){
     }
     if(e.filtered) continue;
 
-    if(e.status>=300&&e.status<400)
-      o+=`    // HTTP ${e.status} redirect — VuGen follows subsequent redirects automatically\n`;
+    // Skip auto-follow redirect (300-303/307) and 401 challenge entries — VuGen handles automatically
+    if(mjAutoFollowSet.has(idx)){
+      o+=`    // HTTP ${e.status} → VuGen auto-follows redirect to ${escJs(e.url)} (omitted)\n`;
+      continue;
+    }
+    // Count auto-follows triggered by this entry
+    {let _j=idx+1,_fc=0; while(_j<S.entries.length&&mjAutoFollowSet.has(_j)){_fc++;_j++;} if(_fc>0) o+=`    // Note: VuGen auto-follows ${_fc} redirect(s) after this request\n`;}
 
     const rn=rqName(e.url);
     const numStr=String(rid).padStart(2,'0');

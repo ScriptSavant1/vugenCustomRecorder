@@ -1606,6 +1606,59 @@ function devwebExtractorCode(corr){
   }
 }
 
+// ── Auto-follow redirect detection ────────────────────────────────────────────
+// Entry i was auto-followed if its URL matches the Location header of the
+// previous real entry, and that entry had a redirect status (300-303, 307).
+// Extractors from auto-follow entries are re-anchored to the triggering entry.
+// Web HTTP/HTML: web_reg_save_param placed before anchor scans ALL responses in chain
+// (IgnoreRedirections=No default) — finds value in the final redirect's response body.
+// DevWeb: extractor on triggering request sees final response automatically.
+function buildAutoFollowMap(entries) {
+  const autoFollowSet = new Set();
+  for (let i = 1; i < entries.length; i++) {
+    const curr = entries[i];
+    if (curr.filtered || curr.isMarker) continue;
+    let prevI = i - 1;
+    while (prevI >= 0 && (entries[prevI].filtered || entries[prevI].isMarker)) prevI--;
+    if (prevI < 0) continue;
+    const prev = entries[prevI];
+    if (prev.status < 300 || (prev.status > 303 && prev.status !== 307)) continue;
+    const locHdr = (prev.respHdrs || []).find(h => h.name.toLowerCase() === 'location');
+    if (!locHdr) continue;
+    try {
+      const locAbsolute = new URL(locHdr.value, prev.url).href;
+      if (locAbsolute === new URL(curr.url).href) autoFollowSet.add(i);
+    } catch {
+      if (locHdr.value === curr.url || curr.url.endsWith(locHdr.value)) autoFollowSet.add(i);
+    }
+  }
+  // Also detect 401 challenge entries: same URL+method re-issued after 401.
+  // VuGen handles 401→Negotiate/NTLM automatically via web_set_user() — skip the 401 entry,
+  // keep only the successful (non-401) response entry.
+  for (let i = 0; i < entries.length - 1; i++) {
+    const curr = entries[i];
+    if (curr.filtered || curr.isMarker || curr.status !== 401) continue;
+    let nextI = i + 1;
+    while (nextI < entries.length && (entries[nextI].filtered || entries[nextI].isMarker)) nextI++;
+    if (nextI >= entries.length) continue;
+    const next = entries[nextI];
+    try {
+      if (new URL(next.url).href === new URL(curr.url).href && next.method === curr.method)
+        autoFollowSet.add(i);
+    } catch {
+      if (next.url === curr.url && next.method === curr.method) autoFollowSet.add(i);
+    }
+  }
+
+  const anchorOf = {};
+  for (const i of autoFollowSet) {
+    let j = i - 1;
+    while (j >= 0 && (autoFollowSet.has(j) || entries[j].filtered || entries[j].isMarker)) j--;
+    anchorOf[i] = j >= 0 ? j : 0;
+  }
+  return { autoFollowSet, anchorOf };
+}
+
 function webHttpCorrCode(corr, indent){
   const {name,extractorType,extractorConfig:cfg}=corr;
   const t=indent||'\t';
@@ -1879,8 +1932,20 @@ function genMainJS(entries, correlations){
     }
   }
 
+  // Detect auto-follow redirect entries and remap their extractors to the anchor entry.
+  // In DevWeb, load.WebRequest follows redirects automatically; the extractor placed
+  // on the triggering request sees the final redirect's response body/headers.
+  const {autoFollowSet:mjAutoFollowSet, anchorOf:mjAnchorOf}=buildAutoFollowMap(entries);
+  // corrSourcesRemap: anchorIdx → [corr]  (extractors from skipped entries moved here)
+  const corrSourcesRemap=new Map();
+  for(const [idx,corrs] of corrSources){
+    const effectiveIdx=mjAutoFollowSet.has(idx)?(mjAnchorOf[idx]??idx):idx;
+    if(!corrSourcesRemap.has(effectiveIdx)) corrSourcesRemap.set(effectiveIdx,[]);
+    for(const c of corrs) if(!corrSourcesRemap.get(effectiveIdx).includes(c)) corrSourcesRemap.get(effectiveIdx).push(c);
+  }
+
   // Default headers from first visible request
-  const firstE=entries.find(e=>!e.filtered&&!e.isMarker);
+  const firstE=entries.find((e,i)=>!e.filtered&&!e.isMarker&&!mjAutoFollowSet.has(i));
   const defHdrs=firstE?filtHdrs(firstE):{'accept-language':'en-US,en;q=0.9'};
   // Build set of header keys that are dynamic (correlated or unresolved) — exclude from global defaults
   const dynHdrKeysMj=new Set();
@@ -2050,8 +2115,15 @@ function genMainJS(entries, correlations){
 
     if(e.filtered) continue;
 
-    if(e.status>=300&&e.status<400)
-      o+=`    // HTTP ${e.status} redirect — VuGen follows subsequent redirects automatically\n`;
+    // Skip auto-follow redirect entries (300-303/307) and 401 challenge entries — VuGen handles these automatically.
+    // Correlation extractors have been re-anchored to the triggering entry above.
+    if(mjAutoFollowSet.has(idx)){
+      o+=`    // HTTP ${e.status} → VuGen auto-follows redirect to ${escJs(e.url)} (omitted)\n`;
+      continue;
+    }
+
+    // Count auto-follows triggered by this entry and add a note
+    {let _j=idx+1,_fc=0; while(_j<entries.length&&mjAutoFollowSet.has(_j)){_fc++;_j++;} if(_fc>0) o+=`    // Note: VuGen auto-follows ${_fc} redirect(s) after this request — extractors scan the final response\n`;}
 
     const rn=(() => {
       const base=rqName(e.url);
@@ -2060,7 +2132,7 @@ function genMainJS(entries, correlations){
     })();
     const numStr=String(rid).padStart(2,'0');
     const varN=`webResponse_${numStr}`;
-    const hasSrc=corrSources.has(idx)&&(corrSources.get(idx)||[]).some(c=>c.extractorType!=='generate');
+    const hasSrc=corrSourcesRemap.has(idx)&&(corrSourcesRemap.get(idx)||[]).some(c=>c.extractorType!=='generate');
     const reqUsages=corrUsages.get(idx)||[];
 
     // Build headers (only diff from defaults, apply correlation replacements)
@@ -2293,7 +2365,7 @@ function genMainJS(entries, correlations){
         o+=`        "body": \`${escTpl(bodyText)}\`,\n`;
       }
     }
-    const srcCorrsForReq=(corrSources.get(idx)||[]).filter(c=>c.extractorType!=='generate');
+    const srcCorrsForReq=(corrSourcesRemap.get(idx)||[]).filter(c=>c.extractorType!=='generate');
     if(srcCorrsForReq.length>0){
       o+=`        "returnBody": true,\n`;
       o+=`        "extractors": [\n`;
@@ -2370,6 +2442,19 @@ function genActionC(entries, correlations){
       if(!corrUsages.has(u.reqIdx)) corrUsages.set(u.reqIdx,[]);
       corrUsages.get(u.reqIdx).push({...u,name:corr.name,extractorType:corr.extractorType});
     }
+  }
+
+  // Detect auto-follow redirect entries and remap extractors to the anchor entry.
+  // web_reg_save_param placed before the triggering request scans ALL responses in
+  // the auto-redirect chain (IgnoreRedirections=No default) — scans ALL intermediate
+  // responses including the final destination body.
+  const {autoFollowSet:acAutoFollowSet, anchorOf:acAnchorOf}=buildAutoFollowMap(entries);
+  // corrSourcesRemap: anchorIdx → [corr]  (extractors from skipped entries moved to anchor)
+  const corrSourcesRemap=new Map();
+  for(const [idx,corrs] of corrSources){
+    const effectiveIdx=acAutoFollowSet.has(idx)?(acAnchorOf[idx]??idx):idx;
+    if(!corrSourcesRemap.has(effectiveIdx)) corrSourcesRemap.set(effectiveIdx,[]);
+    for(const c of corrs) corrSourcesRemap.get(effectiveIdx).push(c);
   }
 
   // ── Header analysis: determine universal (auto) vs per-request headers ────
@@ -2512,8 +2597,15 @@ function genActionC(entries, correlations){
 
     if(e.filtered) continue;
 
-    if(e.status>=300&&e.status<400)
-      o+=`\t// HTTP ${e.status} redirect — VuGen follows subsequent redirects automatically\n`;
+    // Skip auto-follow redirect entries (300-303/307) and 401 challenge entries — VuGen handles these automatically.
+    // web_reg_save_param extractors have been re-anchored to the triggering entry.
+    if(acAutoFollowSet.has(idx)){
+      o+=`\t// HTTP ${e.status} → VuGen auto-follows redirect to ${e.url} (omitted)\n`;
+      continue;
+    }
+
+    // Count auto-follows triggered by this entry and add a note
+    {let _j=idx+1,_fc=0; while(_j<entries.length&&acAutoFollowSet.has(_j)){_fc++;_j++;} if(_fc>0) o+=`\t// Note: VuGen auto-follows ${_fc} request(s) — web_reg_save_param scans all responses in chain (IgnoreRedirections=No default)\n`;}
 
     const n=name(e.url);
     const ct=e.ct||'text/html';
@@ -2527,10 +2619,10 @@ function genActionC(entries, correlations){
     const sn=`t${snap++}.inf`;
     const reqUsages=corrUsages.get(idx)||[];
 
-    // Inject web_reg_save_param BEFORE this request if it's a source
-    if(corrSources.has(idx)){
+    // Inject web_reg_save_param BEFORE this request (includes extractors re-anchored from auto-follow entries)
+    if(corrSourcesRemap.has(idx)){
       o+=`\t// --- Correlation extraction for request: ${n}\n`;
-      for(const c of corrSources.get(idx)) o+=webHttpCorrCode(c,'\t');
+      for(const corr of corrSourcesRemap.get(idx)) o+=webHttpCorrCode(corr,'\t');
       o+='\n';
     }
     // Inject TODO comment if this request uses an unresolved candidate value
