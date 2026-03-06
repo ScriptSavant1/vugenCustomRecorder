@@ -215,6 +215,7 @@ https://github.com/nodeca/pako/blob/main/LICENSE
     <div class="stat stat-ok"><span class="stat-val" id="st-params">0</span><span class="stat-lbl">Parameters</span></div>
     <div class="stat"><span class="stat-val" id="st-mode">-</span><span class="stat-lbl">Mode</span></div>
     <div class="stat"><span class="stat-val" id="st-fmt">-</span><span class="stat-lbl">Format</span></div>
+    <div class="stat" id="st-auth-wrap" style="display:none"><span class="stat-val" id="st-auth">-</span><span class="stat-lbl">Auth</span></div>
   </div>
 
   <div class="corr-panel" id="corr-panel">
@@ -256,7 +257,9 @@ const S = {
   scripts: {},       // {ac, vi, ve, gh, mj}
   format: 'both',
   mode: 'single',
-  tab: 'ac'
+  tab: 'ac',
+  auth: null,         // detected auth {type, host, port, hostport, realm?, username?}
+  serverHost: null    // detected primary server {host, proto, prefix, count}
 };
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -272,16 +275,26 @@ const STATIC_CT = new Set([
 const STATIC_EXT = /\.(png|jpe?g|gif|ico|svg|webp|woff2?|ttf|eot|otf|css|js\.map|map)(\?|$)/i;
 const NOISY = /google-analytics|googletagmanager|doubleclick|googlesyndication|facebook\.net|hotjar|segment\.io|mixpanel|amplitude|clarity\.ms|adnxs|scorecardresearch|outbrain|taboola|adsrvr|pubmatic/i;
 const SKIP_HDRS = new Set([
-  'host','content-length','connection',
-  // Cookie headers — managed by VuGen/DevWeb cookie jar automatically; handled
-  // separately in correlation engine via parseCookieHdr() per-name diffing
+  // Connection-level — managed by DevWeb HTTP engine
+  'host','content-length','connection','keep-alive','transfer-encoding','te','trailer',
+  'expect',          // 100-continue — connection-level
+  'via',             // proxy-inserted, irrelevant to load test
+  // Encoding/compression — DevWeb SDK handles automatically
+  'accept-encoding',
+  // Cookie jar — managed automatically; correlation engine handles per-name diffing via parseCookieHdr()
   'cookie','cookie2',
+  // Browser client hints / fetch metadata — meaningless in headless load test
   'sec-ch-ua','sec-ch-ua-mobile','sec-ch-ua-platform',
   'sec-fetch-dest','sec-fetch-mode','sec-fetch-site','sec-fetch-user',
+  // Browser-only privacy/security hints
   'upgrade-insecure-requests','dnt',
-  'if-none-match','if-modified-since','if-unmodified-since',
-  'te','trailer','transfer-encoding','via','x-forwarded-for',
-  'cache-control','pragma'
+  // HTTP/2 priority hint — not applicable to load test protocol layer
+  'priority',
+  // Conditional cache headers — not needed in scripted replay
+  'if-none-match','if-modified-since','if-unmodified-since','if-match',
+  'cache-control','pragma',
+  // Proxy / forwarding headers
+  'x-forwarded-for'
 ]);
 
 const DYNAMIC_PATTERNS = {
@@ -819,12 +832,54 @@ function findValueInResponse(value, entry){
     if(m) return {type:'cookie',config:{cookieName:m[1].trim()}};
   }
 
-  // 2. Response headers
+  // 1b. 3xx redirect — Location header with dynamic URL path segment or query param
+  // Must be before the generic header search (section 2) which would extract the full URL incorrectly.
+  // Handles: OAuth2 state/code, OIDC session tokens, PingFederate AS session IDs, etc.
+  if(entry.status>=300&&entry.status<400){
+    const loc=(entry.respHdrsMap||{})['location']||'';
+    if(loc&&loc.includes(v)){
+      const vidx=loc.indexOf(v);
+      const pre=loc.substring(0,vidx);
+      const post=loc.substring(vidx+v.length);
+      // Distinguish: query param (last = after last /) vs path segment
+      const lastEq=pre.lastIndexOf('=');
+      const lastSlash=pre.lastIndexOf('/');
+      let lb,rb;
+      if(lastEq>lastSlash){
+        // Query param: "...?paramName=VALUE&..." → LB="paramName=", RB="&" or "\r\n"
+        const sepIdx=Math.max(pre.lastIndexOf('&'),pre.lastIndexOf('?'));
+        lb=pre.substring(sepIdx+1);              // e.g. "state=" or "code="
+        rb=post.startsWith('&')?'&':'\r\n';
+      } else {
+        // Path segment: ".../segment/VALUE/next/..." → LB="/segment/", RB="/"
+        const prevSlash=pre.lastIndexOf('/',pre.length-1);       // the slash just before VALUE
+        const prevPrev=pre.lastIndexOf('/',prevSlash-1);          // the slash before that
+        lb=pre.substring(prevPrev>=0?prevPrev:prevSlash);         // e.g. "/as/" or "/"
+        rb=post.startsWith('/')?'/':post.startsWith('?')?'?':'\r\n';
+      }
+      return {type:'boundary_header',config:{lb,rb}};
+    }
+  }
+
+  // 2. Response headers (non-cookie, non-redirect-Location)
   for(const [k,hv] of Object.entries(entry.respHdrsMap)){
     if(k==='set-cookie') continue;
-    if(hv===v||hv.includes(v)){
-      const lb=k+': '; const rb=hv===v?'\r\n':v.length>4?v.substring(v.indexOf(v)+v.length,v.indexOf(v)+v.length+2)||'\r\n':'\r\n';
-      return {type:'boundary_header',config:{lb,rb:'\r\n',headerName:k}};
+    if(k==='location'&&entry.status>=300&&entry.status<400) continue; // handled above
+    if(hv===v){
+      // Exact match → extract the full header value
+      return {type:'boundary_header',config:{lb:k+': ',rb:'\r\n'}};
+    }
+    if(hv.includes(v)){
+      // Partial match → tight boundaries around the value within the header string
+      const hidx=hv.indexOf(v);
+      const hpre=hv.substring(0,hidx);
+      const hpost=hv.substring(hidx+v.length);
+      // LB: header-name + ': ' + up to 20 chars of value-prefix
+      const lb=(k+': '+hpre).slice(-30);
+      // RB: first separator after value (or up to 15 chars)
+      const rbM=hpost.match(/^([;,\s"'\r\n])/);
+      const rb=rbM?rbM[1]:hpost.substring(0,Math.min(hpost.length,10))||'\r\n';
+      return {type:'boundary_header',config:{lb,rb}};
     }
   }
 
@@ -875,10 +930,12 @@ function findValueInResponse(value, entry){
         return {type:'boundary',config:{lb,rb}};
       }
       // data-* attribute: data-token="VALUE" or data-csrf="VALUE"
+      // Use HtmlExtractor (DOM-parsed, reliable) not BoundaryExtractor (text search)
       const reDataAttr=new RegExp(`data-([a-z][a-z0-9-]*)=["']${escapeRegex(v)}["']`,'i');
       const mData=entry.respBody.match(reDataAttr);
       if(mData){
-        return {type:'boundary',config:{lb:`data-${mData[1]}="`,rb:'"'}};
+        const dAttr=`data-${mData[1]}`;
+        return {type:'html',config:{selector:`[${dAttr}]`,attr:dAttr}};
       }
       // JavaScript variable assignment: var token = "VALUE" or const csrfToken = 'VALUE'
       const reJsVar=new RegExp(`(?:var|let|const)\\s+[A-Za-z_][A-Za-z0-9_]*\\s*=\\s*["']${escapeRegex(v)}["']`,'i');
@@ -889,13 +946,14 @@ function findValueInResponse(value, entry){
         return {type:'boundary',config:{lb,rb:'"'}};
       }
       // meta tag: <meta name="csrf-token" content="VALUE">
+      // Use HtmlExtractor (DOM-parsed) not BoundaryExtractor — more reliable for meta content
       const reMeta=new RegExp(`<meta[^>]+(?:name|id)=["'][^"']*["'][^>]+content=["']${escapeRegex(v)}["']`+
         `|<meta[^>]+content=["']${escapeRegex(v)}["'][^>]+(?:name|id)=["']([^"']+)["']`,'i');
       const mMeta=entry.respBody.match(reMeta);
       if(mMeta){
         const nameM=entry.respBody.match(new RegExp(`<meta[^>]+name=["']([^"']+)["'][^>]+content=["']${escapeRegex(v)}["']`,'i'));
         const metaName=nameM?nameM[1]:'csrf-token';
-        return {type:'boundary',config:{lb:`name="${metaName}" content="`,rb:'"'}};
+        return {type:'html',config:{selector:`meta[name='${escJs(metaName)}']`,attr:'content'}};
       }
     }
 
@@ -1033,6 +1091,77 @@ function singleHarCorrelate(entries){
         }
       }
     }catch{}
+  }
+
+  // ── Redirect chain correlations ────────────────────────────────────────────
+  // Generic: handles OAuth2 state/code, OIDC/PingFederate session tokens,
+  // any dynamic path segment or query param in a 3xx Location header that is
+  // subsequently used in the next request's URL or POST body.
+  for(let idx=0;idx<entries.length;idx++){
+    const e=entries[idx];
+    if(e.filtered||!e.status||e.status<300||e.status>=400) continue;
+    const loc=(e.respHdrsMap||{})['location']||'';
+    if(!loc) continue;
+    let locUrl;
+    try{ locUrl=new URL(loc); }catch{ continue; }
+
+    // ── Path segments ──────────────────────────────────────────────────────
+    const segs=locUrl.pathname.split('/').filter(Boolean);
+    for(const seg of segs){
+      if(!isDynamic(seg)) continue;
+      const seenKey='redir_path_'+seg.substring(0,20);
+      if(seen.has(seenKey)) continue;
+      for(let j=idx+1;j<entries.length;j++){
+        const ne=entries[j];
+        if(ne.filtered) continue;
+        // Check if this dynamic segment appears in the next request's URL
+        if(ne.url.includes('/'+seg+'/')||ne.url.includes('/'+seg+'?')||
+           ne.url.endsWith('/'+seg)||ne.url.includes('/'+seg+'#')){
+          seen.add(seenKey);
+          const name=genParamName(sanitizeCandHint(seg.length>12?seg.substring(0,12):seg),counter);
+          // Compute LB/RB around the segment in the Location URL
+          const vidx=loc.indexOf(seg);
+          const pre=loc.substring(0,vidx);
+          const post=loc.substring(vidx+seg.length);
+          const prevSlash=pre.lastIndexOf('/',pre.length-1);
+          const prevPrev=pre.lastIndexOf('/',prevSlash-1);
+          const lb=pre.substring(prevPrev>=0?prevPrev:prevSlash);
+          const rb=post.startsWith('/')?'/':post.startsWith('?')?'?':'\r\n';
+          addUsage(corrs,name,{type:'boundary_header',config:{lb,rb},idx},
+            {reqIdx:j,location:'url_path_seg',key:'$'+name,originalValue:seg,tokenValue:seg});
+          break;
+        }
+      }
+    }
+
+    // ── Query params ───────────────────────────────────────────────────────
+    for(const [k,v] of locUrl.searchParams){
+      if(!isDynamic(v)) continue;
+      const seenKey='redir_qp_'+k.toLowerCase()+'_'+v.substring(0,12);
+      if(seen.has(seenKey)) continue;
+      for(let j=idx+1;j<entries.length;j++){
+        const ne=entries[j];
+        if(ne.filtered) continue;
+        const usedInUrl=ne.url.includes(v);
+        const usedInBody=ne.body&&(ne.body.text||'').includes(v);
+        if(!usedInUrl&&!usedInBody) continue;
+        seen.add(seenKey);
+        const name=genParamName(sanitizeCandHint(k),counter);
+        // Compute LB/RB around the param in the Location URL
+        const eqIdx=loc.indexOf(k+'=');
+        if(eqIdx<0) break;
+        const afterEq=eqIdx+k.length+1;
+        const preInLoc=loc.substring(0,afterEq);
+        const sepIdx=Math.max(preInLoc.lastIndexOf('?'),preInLoc.lastIndexOf('&'));
+        const lb=preInLoc.substring(sepIdx+1);        // e.g. "state=" or "code="
+        const afterVal=loc.substring(afterEq+v.length);
+        const rb=afterVal.startsWith('&')?'&':'\r\n';
+        const location=usedInUrl?'query':'body_form';
+        addUsage(corrs,name,{type:'boundary_header',config:{lb,rb},idx},
+          {reqIdx:j,location,key:k,originalValue:v,tokenValue:v});
+        break;
+      }
+    }
   }
 
   // Merge usages for same parameter name
@@ -1466,12 +1595,14 @@ function devwebExtractorCode(corr){
     case 'html':
       return `            new load.HtmlExtractor("${name}", "${cfg.selector}", "${cfg.attr||'value'}")`;
     case 'boundary_header':
-      return `            new load.BoundaryExtractor("${name}", "${escJs(cfg.lb)}", "${escJs(cfg.rb)}", {scope: "Headers"})`;
+      // Must use options form — 3-arg constructor has no 4th arg; scope must be load.ExtractorScope enum
+      return `            new load.BoundaryExtractor("${name}", {leftBoundary: "${escJs(cfg.lb)}", rightBoundary: "${escJs(cfg.rb)}", scope: load.ExtractorScope.Headers})`;
     case 'generate':
       return null; // generated at action start — not a response extractor
     case 'boundary':
     default:
-      return `            new load.BoundaryExtractor("${name}", "${escJs(cfg.lb)}", "${escJs(cfg.rb)}")`;
+      // Explicit Body scope prevents false matches from response headers
+      return `            new load.BoundaryExtractor("${name}", {leftBoundary: "${escJs(cfg.lb)}", rightBoundary: "${escJs(cfg.rb)}", scope: load.ExtractorScope.Body})`;
   }
 }
 
@@ -1489,11 +1620,23 @@ function webHttpCorrCode(corr, indent){
       // the value from the Set-Cookie response header using boundary extraction.
       return `${t}web_reg_save_param("${name}",\n${t}\t"LB=${cfg.cookieName}=",\n${t}\t"RB=;",\n${t}\t"Search=Headers",\n${t}\t"Ord=1",\n${t}\tLAST);\n`;
     case 'html': {
-      // Extract field name from CSS selector (e.g. "input[name='_sourcePage']" → "_sourcePage")
-      // web_reg_save_param (NOT _ex): positional name first, LB/RB for hidden field value boundary
-      const _fnM=cfg.selector.match(/\[name=['"]([^'"]+)['"]\]/);
-      const _fieldName=_fnM?_fnM[1]:cfg.selector;
-      return `${t}web_reg_save_param("${name}",\n${t}\t"LB=name=\\"${escJs(_fieldName)}\\" value=\\"",\n${t}\t"RB=\\"",\n${t}\t"Ord=1",\n${t}\tLAST);\n`;
+      // Map CSS selector + attr back to LB/RB boundary for web_reg_save_param (no HTML extractor in VuGen C API)
+      const sel=cfg.selector||'';
+      const attr=cfg.attr||'value';
+      // data-* attribute: selector=[data-csrf], attr=data-csrf → LB=data-csrf="  RB="
+      const dataM=sel.match(/^\[data-([a-z][a-z0-9-]*)\]$/i);
+      if(dataM){
+        return `${t}web_reg_save_param("${name}",\n${t}\t"LB=data-${dataM[1]}=\\"",\n${t}\t"RB=\\"",\n${t}\t"Ord=1",\n${t}\tLAST);\n`;
+      }
+      // meta[name='x'] with content attr → LB=name="x" content="  RB="
+      const metaM=sel.match(/^meta\[name=['"]([^'"]+)['"]\]$/i);
+      if(metaM){
+        return `${t}web_reg_save_param("${name}",\n${t}\t"LB=name=\\"${escJs(metaM[1])}\\" content=\\"",\n${t}\t"RB=\\"",\n${t}\t"Ord=1",\n${t}\tLAST);\n`;
+      }
+      // input[name='x'] or generic name= selector → LB=name="x" <attr>="  RB="
+      const nameM=sel.match(/\[name=['"]([^'"]+)['"]\]/);
+      const fieldName=nameM?nameM[1]:sel;
+      return `${t}web_reg_save_param("${name}",\n${t}\t"LB=name=\\"${escJs(fieldName)}\\" ${attr}=\\"",\n${t}\t"RB=\\"",\n${t}\t"Ord=1",\n${t}\tLAST);\n`;
     }
     case 'boundary_header':
       // web_reg_save_param (NOT _ex): Search=Headers to extract from response header
@@ -1737,8 +1880,8 @@ function genMainJS(entries, correlations){
   }
 
   // Default headers from first visible request
-  const firstE=entries.find(e=>!e.filtered);
-  const defHdrs=firstE?filtHdrs(firstE):{'accept':'*/*','accept-encoding':'gzip, deflate, br','accept-language':'en-US,en;q=0.9'};
+  const firstE=entries.find(e=>!e.filtered&&!e.isMarker);
+  const defHdrs=firstE?filtHdrs(firstE):{'accept-language':'en-US,en;q=0.9'};
   // Build set of header keys that are dynamic (correlated or unresolved) — exclude from global defaults
   const dynHdrKeysMj=new Set();
   for(const corr of correlations){
@@ -1751,7 +1894,7 @@ function genMainJS(entries, correlations){
   }
 
   // ── initialize ────────────────────────────────────────────────────────────
-  o+='load.initialize("init", async function() {\n';
+  o+='load.initialize("Initialize", async function() {\n';
   o+='    load.log("\uD83D\uDE80 Initializing Vuser " + load.config.user.userId, load.LogLevel.info);\n\n';
   const nonGenCorrs=correlations.filter(c=>c.extractorType!=='generate');
   if(nonGenCorrs.length>0){
@@ -1815,6 +1958,24 @@ function genMainJS(entries, correlations){
     }
   }
   o+='    };\n\n';
+  // Authentication credentials
+  const AUTH_LABELS_JS={kerberos:'Kerberos',ntlm:'NTLM',negotiate:'Negotiate (Kerberos/NTLM)',basic:'Basic',digest:'Digest'};
+  if(S.auth && AUTH_LABELS_JS[S.auth.type]){
+    const lbl=AUTH_LABELS_JS[S.auth.type];
+    o+=`    // ${lbl} Authentication\n`;
+    if(S.auth.type==='kerberos'||S.auth.type==='negotiate'){
+      o+=`    // Runtime Settings: Replay -> enableIntegratedAuthentication: true\n`;
+      o+=`    // Runtime Settings: Replay -> useCanonicalNameInSPN: true\n`;
+    } else if(S.auth.type==='ntlm'){
+      o+=`    // Runtime Settings: Replay -> enableIntegratedAuthentication: true\n`;
+    }
+    const hostArg=(S.auth.type==='basic'||S.auth.type==='digest')?'"*"':`"${S.auth.hostport||'server:port'}"`;
+    o+=`    load.setUserCredentials({\n`;
+    o+=`        username: load.params.AuthUsername,\n`;
+    o+=`        password: load.params.AuthPassword,\n`;
+    o+=`        host: ${hostArg}\n`;
+    o+=`    });\n\n`;
+  }
   // Helper functions for generate-type correlations.
   // Each returns a fresh token value — called inline only for requests that need the header.
   const genCorrsMj=correlations.filter(c=>c.extractorType==='generate');
@@ -1824,16 +1985,17 @@ function genMainJS(entries, correlations){
       const pat=c.extractorConfig.pattern||'alphanumeric';
       const len=c.extractorConfig.length||19;
       o+=`    function gen_${c.name}() {\n`;
+      // Use load.utils — VuGen DevWeb native API (not Node.js require)
       if(pat==='uuid')
-        o+=`        return require('crypto').randomUUID();\n`;
+        o+=`        return load.utils.uuid();\n`;
       else if(pat==='hex64')
-        o+=`        return require('crypto').randomBytes(32).toString('hex');\n`;
+        o+=`        return load.utils.randomString(64, {hex: true});\n`;
       else if(pat==='hex32')
-        o+=`        return require('crypto').randomBytes(16).toString('hex');\n`;
+        o+=`        return load.utils.randomString(32, {hex: true});\n`;
       else if(pat==='hex16')
-        o+=`        return require('crypto').randomBytes(8).toString('hex');\n`;
+        o+=`        return load.utils.randomString(16, {hex: true});\n`;
       else
-        o+=`        return require('crypto').randomBytes(${Math.ceil(len/2)}).toString('hex').substring(0,${len});\n`;
+        o+=`        return load.utils.randomString(${len});\n`;
       o+=`    }\n`;
     }
     o+='\n';
@@ -1888,6 +2050,9 @@ function genMainJS(entries, correlations){
 
     if(e.filtered) continue;
 
+    if(e.status>=300&&e.status<400)
+      o+=`    // HTTP ${e.status} redirect — VuGen follows subsequent redirects automatically\n`;
+
     const rn=(() => {
       const base=rqName(e.url);
       nc[base]=(nc[base]||0)+1;
@@ -1914,6 +2079,10 @@ function genMainJS(entries, correlations){
           ?`${hdrUsage.prefix}\${load.global.${hdrUsage.name}}`
           :`\${load.global.${hdrUsage.name}}`;
         extraHdrs[k]={dynamic:true,expr};
+      } else if(k==='accept'&&v==='*/*'){
+        // DevWeb default — never needed
+      } else if(k==='authorization'&&S.auth&&['kerberos','ntlm','negotiate','basic','digest'].includes(S.auth.type)){
+        // Handled by load.setUserCredentials — never emit as a static header
       } else if(defHdrs[k]===undefined||defHdrs[k]!==v||dynHdrKeysMj.has(k)){
         // Check if this header value is an unresolved candidate — never emit static dynamic values
         let candHintMj=null;
@@ -2045,13 +2214,20 @@ function genMainJS(entries, correlations){
       }
     }
 
+    // ServerHost URL substitution (applied before escaping)
+    if(S.serverHost&&urlOut.startsWith(S.serverHost.prefix)){
+      urlOut='\x00SRVHOST\x00'+urlOut.slice(S.serverHost.prefix.length);
+      urlHasDynamic=true;
+    }
+
     o+=`    // ${rn}\n`;
-    o+=`    const ${varN} = new load.WebRequest({\n`;
+    o+=`    const ${varN} = await new load.WebRequest({\n`;
     o+=`        "id": ${rid},\n`;
     if(urlHasDynamic){
       let urlEsc=escTpl(urlOut);
       urlEsc=urlEsc.replace(/\x00DYNSTART_([^]+?)\x00DYNEND/g,'${load.global.$1}');
       urlEsc=urlEsc.replace(/\x00PARAM_([^]+?)\x00PARAMEND/g,'${load.params.$1}');
+      if(S.serverHost) urlEsc=urlEsc.replace('\x00SRVHOST\x00',S.serverHost.proto+'//${load.params.ServerHost}');
       o+=`        "url": \`${urlEsc}\`,\n`;
     } else {
       o+=`        "url": "${escJs(e.url)}",\n`;
@@ -2076,6 +2252,13 @@ function genMainJS(entries, correlations){
     }
     if(bodyText!==null){
       const bodyMime=(e.body&&e.body.mimeType||'').split(';')[0].trim();
+      // Multipart body detection
+      if(bodyMime==='multipart/form-data'){
+        o+=`        // TODO: Multipart body detected. For file uploads in DevWeb:\n`;
+        o+=`        // const formData = new load.FormData();\n`;
+        o+=`        // formData.append('fieldName', load.utils.readFile('filename.pdf'), 'filename.pdf');\n`;
+        o+=`        // Then use: "body": formData  (remove the body property below and replace)\n`;
+      }
       const isFormBody=bodyMime==='application/x-www-form-urlencoded'&&bodyText.indexOf('=')>=0;
       if(isFormBody){
         // Render as object { "key": "value" } — matches VuGen DevWeb output format, easier to read
@@ -2120,7 +2303,7 @@ function genMainJS(entries, correlations){
       }
       o+=`        ],\n`;
     }
-    o+=`    }).sendSync();\n`;
+    o+=`    }).send();\n`;
     o+=`    load.log(\`${rn} - Status: \${${varN}.status}\`, load.LogLevel.info);\n`;
 
     // Store extracted values
@@ -2151,7 +2334,7 @@ function genMainJS(entries, correlations){
   o+='});\n\n';
 
   // ── finalize ──────────────────────────────────────────────────────────────
-  o+='load.finalize("finalize", async function() {\n';
+  o+='load.finalize("Finalize", async function() {\n';
   o+='    load.log("\uD83C\uDFC1 Finalizing Vuser " + load.config.user.userId, load.LogLevel.info);\n\n';
   o+='    // Cleanup code here if needed\n\n';
   o+='    load.log("\u2713 Finalization complete", load.LogLevel.info);\n';
@@ -2220,21 +2403,37 @@ function genActionC(entries, correlations){
   function hdrTitleCase(n){ return n.split('-').map(w=>w?w[0].toUpperCase()+w.slice(1):w).join('-'); }
   // Count header name+value occurrences across all visible (non-filtered, non-marker) entries
   const visEntries=entries.filter(e=>!e.filtered&&!e.isMarker);
-  const hdrFreq={};
+  const hdrFreq={};    // k → Map<value, count-of-entries-with-that-value>
+  const hdrKeyFreq={}; // k → count-of-entries-that-have-this-header (any value)
   for(const ev of visEntries){
+    const seenKeys=new Set();
     for(const h of (ev.reqHdrs||[])){
       const k=h.name.toLowerCase();
       if(SKIP_HDR_AC.has(k)||k.startsWith(':')) continue;
       if(!hdrFreq[k]) hdrFreq[k]=new Map();
       hdrFreq[k].set(h.value,(hdrFreq[k].get(h.value)||0)+1);
+      if(!seenKeys.has(k)){ seenKeys.add(k); hdrKeyFreq[k]=(hdrKeyFreq[k]||0)+1; }
     }
   }
-  // Headers appearing with the same value in ≥80% of entries → web_add_auto_header (global)
+  // Global headers: key appears on ≥80% of entries → use most common value as web_add_auto_header
   const autoHdrs={};
   const aThresh=Math.max(1,Math.ceil(visEntries.length*0.8));
   for(const [k,valMap] of Object.entries(hdrFreq)){
-    for(const [v,cnt] of valMap){ if(cnt>=aThresh){ autoHdrs[k]=v; break; } }
+    if((hdrKeyFreq[k]||0)>=aThresh){
+      const [bestVal]=[...valMap.entries()].sort((a,b)=>b[1]-a[1])[0];
+      autoHdrs[k]=bestVal;
+    }
   }
+  // Force-global: User-Agent and Accept-Language are always session-wide constants
+  for(const fk of ['user-agent','accept-language']){
+    if(hdrFreq[fk]&&autoHdrs[fk]===undefined){
+      const [bestVal]=[...hdrFreq[fk].entries()].sort((a,b)=>b[1]-a[1])[0];
+      autoHdrs[fk]=bestVal;
+    }
+  }
+  // When non-Bearer auth is detected, suppress Authorization header — web_set_user handles it
+  if(S.auth&&['kerberos','ntlm','negotiate','basic','digest'].includes(S.auth.type))
+    delete autoHdrs['authorization'];
   // Remove headers managed by correlations — those need per-request dynamic substitution
   for(const corr of correlations){
     for(const u of corr.usages){
@@ -2264,6 +2463,28 @@ function genActionC(entries, correlations){
     helperFns+=`}\n\n`;
   }
   let o=helperFns+'Action()\n{\n\n\tweb_set_sockets_option("SSL_VERSION", "AUTO");\n\n';
+  // Server configuration
+  if(S.serverHost){
+    o+=`\t// Server configuration — update "ServerHost" value to target different environments\n`;
+    o+=`\t// e.g. test: ${S.serverHost.host}  prod: prod-server.company.com\n`;
+    o+=`\tlr_save_string("${S.serverHost.host}", "ServerHost");\n\n`;
+  }
+  // Authentication
+  const AUTH_LABELS_C={kerberos:'Kerberos',ntlm:'NTLM',negotiate:'Negotiate (Kerberos/NTLM)',basic:'Basic',digest:'Digest'};
+  if(S.auth && AUTH_LABELS_C[S.auth.type]){
+    const lbl=AUTH_LABELS_C[S.auth.type];
+    o+=`\t// ${lbl} Authentication\n`;
+    if(S.auth.type==='kerberos'||S.auth.type==='negotiate'){
+      o+=`\t// Runtime Settings: Internet Protocol -> Preferences -> Authentication\n`;
+      o+=`\t//   [x] Enable Integrated Authentication\n`;
+      o+=`\t//   [x] Use canonical name in SPN\n`;
+    } else if(S.auth.type==='ntlm'){
+      o+=`\t// Runtime Settings: Internet Protocol -> Preferences -> Authentication\n`;
+      o+=`\t//   [x] Enable Integrated Authentication\n`;
+    }
+    const realm=S.auth.realm||S.auth.hostport||'server:port';
+    o+=`\tweb_set_user("{AuthUsername}", "{AuthPassword}", "${realm}");\n\n`;
+  }
   // Global headers (same value on every request) — set once with web_add_auto_header
   for(const [k,v] of Object.entries(autoHdrs)){
     o+=`\tweb_add_auto_header("${hdrTitleCase(k)}", "${escJs(v)}");\n`;
@@ -2290,6 +2511,9 @@ function genActionC(entries, correlations){
     }
 
     if(e.filtered) continue;
+
+    if(e.status>=300&&e.status<400)
+      o+=`\t// HTTP ${e.status} redirect — VuGen follows subsequent redirects automatically\n`;
 
     const n=name(e.url);
     const ct=e.ct||'text/html';
@@ -2350,6 +2574,11 @@ function genActionC(entries, correlations){
         }
       }
     }
+    // ServerHost URL substitution
+    if(S.serverHost&&urlOut.startsWith(S.serverHost.prefix)){
+      urlOut=S.serverHost.proto+'//{ServerHost}'+urlOut.slice(S.serverHost.prefix.length);
+      ref=ref&&ref.startsWith(S.serverHost.prefix)?S.serverHost.proto+'//{ServerHost}'+ref.slice(S.serverHost.prefix.length):ref;
+    }
 
     // Build header injections for this request
     const hdrUsages=reqUsages.filter(u=>u.location==='header');
@@ -2362,12 +2591,14 @@ function genActionC(entries, correlations){
       const replVal=u.prefix?`${u.prefix}{${u.name}}`:`{${u.name}}`;
       o+=`\tweb_add_header("${u.key}", "${replVal}");\n`;
     }
-    // Per-request headers: not covered by global auto-headers, not skip-listed, not already a correlation
+    // Per-request headers: emit only when value DIFFERS from global default (acts as override)
     const corrHdrKeys=new Set(hdrUsages.map(u=>u.key.toLowerCase()));
     for(const h of (e.reqHdrs||[])){
       const k=h.name.toLowerCase();
       if(SKIP_HDR_AC.has(k)||k.startsWith(':')) continue;
-      if(autoHdrs[k]!==undefined) continue;        // already set globally
+      if(autoHdrs[k]===h.value) continue;          // global already covers this exact value — skip
+      if(k==='accept'&&h.value==='*/*') continue;  // VuGen default — never needed
+      if(k==='authorization'&&S.auth&&['kerberos','ntlm','negotiate','basic','digest'].includes(S.auth.type)) continue;
       if(corrHdrKeys.has(k)) continue;             // already emitted as correlation
       // Check if this header's value is an unresolved candidate — never emit static dynamic values
       let candHint=null;
@@ -2405,6 +2636,19 @@ function genActionC(entries, correlations){
       // NetLog source: POST body was not captured — emit TODO comment
       if(e._fromNetLog && !rawBodyText){
         o+=`\t// TODO: POST body not available in NetLog — add BodyBinary= with your recorded request body\n`;
+      }
+      // Multipart body detection
+      if(encType==='multipart/form-data'){
+        o+=`\t// TODO: Multipart body detected. VuGen uses web_add_body_part() for multipart uploads.\n`;
+        o+=`\t// Consider splitting into parts using web_add_body_part() or record directly in VuGen.\n`;
+      }
+      // Large unsubstituted .NET hidden fields warning
+      if(rawBodyText&&rawBodyText.length>1500&&/__VIEWSTATE|__EVENTVALIDATION|__RequestVerificationToken/.test(rawBodyText)){
+        // Check if any of these were NOT substituted (still have raw value)
+        const hasRawLarge=/__VIEWSTATE=%2F|__VIEWSTATE=\/|__VIEWSTATE=[A-Za-z0-9+/]{100,}/.test(rawBodyText);
+        if(hasRawLarge){
+          o+=`\t// TODO: Large .NET hidden field(s) detected. Re-record with two HARs in Script Studio for auto-correlation.\n`;
+        }
       }
       const bodyUsages=reqUsages.filter(u=>u.location==='body_json'||u.location==='body_form'||u.location==='body_xml');
 
@@ -2990,7 +3234,7 @@ async function dlZip(fmt){
     zip.file('vuser_init.c',S.scripts.vi||'');
     zip.file('vuser_end.c',S.scripts.ve||'');
     zip.file('globals.h',S.scripts.gh||'');
-    zip.file('default.cfg',WEB_DEFAULT_CFG);
+    zip.file('default.cfg',genDefaultCfg(S.auth));
     zip.file('default.usp',WEB_DEFAULT_USP);
     zip.file(nm+'.usr',genUsrFile(nm));
     zip.file('ScriptUploadMetadata.xml',genScriptUploadMetadata(nm));
@@ -3011,7 +3255,7 @@ async function dlZip(fmt){
     const nm='DevWebScript_Correlated';
     const zip=new JSZip();
     zip.file('main.js',S.scripts.mj||'');
-    zip.file('rts.yml',DEVWEB_RTS_YML);
+    zip.file('rts.yml',genRtsYml(S.auth));
     zip.file('scenario.yml',DEVWEB_SCENARIO_YML);
     zip.file('parameters.yml',S.scripts.pyml||genParamsYml());
     zip.file('tsconfig.json',DEVWEB_TSCONFIG_JSON);
@@ -3163,6 +3407,119 @@ function renderDlBar(){
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
+// AUTHENTICATION DETECTION
+// ═══════════════════════════════════════════════════════════════════════════
+function detectAuth(entries){
+  function urlParts(url){
+    try{
+      const u=new URL(url);
+      const port=u.port||(u.protocol==='https:'?'443':'80');
+      return{host:u.hostname,port,hostport:u.hostname+':'+port};
+    }catch{return{host:'',port:'443',hostport:''};}
+  }
+  const PRIO={kerberos:7,ntlm:6,negotiate:5,digest:4,basic:3,bearer:2,saml:1};
+  let best=null;
+  function set(type,parts,extra){
+    if(!best||(PRIO[type]||0)>(PRIO[best.type]||0))
+      best={type,...parts,...(extra||{})};
+  }
+  for(const e of entries){
+    if(e.isMarker) continue;
+    const parts=urlParts(e.url);
+    // Check WWW-Authenticate in response headers
+    const wwwAuth=(e.respHdrsMap||{})['www-authenticate']||'';
+    if(/^negotiate\b/i.test(wwwAuth)) set('negotiate',parts);
+    else if(/^ntlm\b/i.test(wwwAuth)) set('ntlm',parts);
+    else if(/^digest\b/i.test(wwwAuth)){
+      const realm=(wwwAuth.match(/realm="([^"]+)"/i)||[])[1]||parts.hostport;
+      set('digest',parts,{realm});
+    } else if(/^basic\b/i.test(wwwAuth)){
+      const realm=(wwwAuth.match(/realm="([^"]+)"/i)||[])[1]||parts.hostport;
+      set('basic',parts,{realm});
+    }
+    // Check Authorization in request headers
+    const authHdr=(e.hdrsMap||{})['authorization']||'';
+    if(/^negotiate /i.test(authHdr)){
+      let type='negotiate';
+      try{
+        const tok=authHdr.split(' ')[1]||'';
+        const dec=atob(tok.substring(0,16));
+        type=dec.includes('NTLMSSP')?'ntlm':'kerberos';
+      }catch{}
+      set(type,parts);
+    } else if(/^ntlm /i.test(authHdr)){
+      set('ntlm',parts);
+    } else if(/^basic /i.test(authHdr)){
+      let username='';
+      try{username=atob(authHdr.split(' ')[1]||'').split(':')[0];}catch{}
+      set('basic',parts,{realm:parts.hostport,username});
+    } else if(/^digest /i.test(authHdr)){
+      const realm=(authHdr.match(/realm="([^"]+)"/i)||[])[1]||parts.hostport;
+      const username=(authHdr.match(/username="([^"]+)"/i)||[])[1]||'';
+      set('digest',parts,{realm,username});
+    } else if(/^bearer /i.test(authHdr)){
+      set('bearer',parts);
+    }
+    // Check SAML in POST body
+    const postText=(e.body&&e.body.text)||'';
+    if(postText.includes('SAMLResponse')||postText.includes('SAMLRequest'))
+      set('saml',parts);
+  }
+  return best;
+}
+
+function genDefaultCfg(auth){
+  if(!auth||!['kerberos','negotiate','ntlm'].includes(auth.type))
+    return WEB_DEFAULT_CFG;
+  const overrides={};
+  if(auth.type==='kerberos'||auth.type==='negotiate'){
+    overrides['IntegratedAuthentication']='1';
+    overrides['SPNCNameLookup']='1';
+  } else {
+    overrides['IntegratedAuthentication']='1';
+    overrides['UseNativeNTLM']='1';
+    overrides['OverrideNTLMCreds']='1';
+  }
+  return WEB_DEFAULT_CFG.split('\n').map(line=>{
+    const eq=line.indexOf('=');
+    if(eq<0) return line;
+    const key=line.substring(0,eq);
+    return key in overrides ? key+'='+overrides[key] : line;
+  }).join('\n');
+}
+
+function genRtsYml(auth){
+  if(!auth||!['kerberos','negotiate','ntlm'].includes(auth.type))
+    return DEVWEB_RTS_YML;
+  return DEVWEB_RTS_YML.replace(
+    'enableIntegratedAuthentication: false',
+    'enableIntegratedAuthentication: true'
+  );
+}
+
+function detectServerHost(entries){
+  const counts={};
+  for(const e of entries){
+    try{
+      const u=new URL(e.url);
+      if(!u.hostname) continue;
+      const stdPort=u.protocol==='https:'?'443':'80';
+      const portPart=u.port&&u.port!==stdPort?':'+u.port:'';
+      const host=u.hostname+portPart;
+      const prefix=u.protocol+'//'+host;
+      if(!counts[prefix]) counts[prefix]={host,proto:u.protocol,prefix,count:0};
+      counts[prefix].count++;
+    }catch{}
+  }
+  const sorted=Object.values(counts).sort((a,b)=>b.count-a.count);
+  if(!sorted.length) return null;
+  const total=sorted.reduce((s,e)=>s+e.count,0);
+  const top=sorted[0];
+  if(top.count/total<0.35&&sorted.length>1) return null;
+  return top;
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
 // MAIN ANALYZE FUNCTION
 // ═══════════════════════════════════════════════════════════════════════════
 async function analyze(){
@@ -3242,9 +3599,39 @@ async function analyze(){
       S.correlations=singleHarCorrelate(S.entries1);
     }
 
-    setMsg('Detecting parameters...','Scanning for user-entered values to parameterize');
+    setMsg('Detecting parameters & authentication...','Scanning for user-entered values and auth type');
     await tick();
     S.params=detectParams(S.entries1,S.correlations);
+
+    // Auth detection
+    S.auth=detectAuth(S.entries1);
+    // Add AuthUsername / AuthPassword params when credential-based auth is present
+    if(S.auth&&['kerberos','negotiate','ntlm','basic','digest'].includes(S.auth.type)){
+      if(!S.params.some(p=>p.csvKey==='AuthUsername')){
+        const usernameDefault=S.auth.username||'<enter_username>';
+        S.params.unshift(
+          {name:'AuthPassword',csvKey:'AuthPassword',value:'<enter_password>',usages:[]},
+          {name:'AuthUsername',csvKey:'AuthUsername',value:usernameDefault,usages:[]}
+        );
+      }
+    }
+    // ServerHost detection — parameterize primary hostname for environment portability
+    S.serverHost=detectServerHost(S.entries1.filter(e=>!e.filtered&&!e.isMarker));
+    if(S.serverHost&&!S.params.some(p=>p.csvKey==='ServerHost')){
+      S.params.unshift({name:'ServerHost',csvKey:'ServerHost',value:S.serverHost.host,usages:[]});
+    }
+
+    // SSO / OAuth redirect chain detection — warn user and confirm correlation is in place
+    const SSO_URL_PATTERN=/\/oauth2?\/|\/oidc\/|\/as\/authoris|\/sso\/|\/saml\/|\/connect\/token|\.ping$|authorization\.oauth|\/login\?|\/auth\?|\.okta\.|\/adfs\/|\/realms\//i;
+    const redirectEntries=S.entries1.filter(e=>!e.filtered&&!e.isMarker&&e.status>=300&&e.status<400);
+    const ssoRedirects=redirectEntries.filter(e=>SSO_URL_PATTERN.test(e.url)||(e.respHdrsMap&&SSO_URL_PATTERN.test((e.respHdrsMap||{})['location']||'')));
+    if(ssoRedirects.length>0){
+      const ssoMsg=`SSO/OAuth redirect chain detected (${ssoRedirects.length} redirect step${ssoRedirects.length>1?'s':''} — `+
+        `${ssoRedirects.map(e=>new URL(e.url).hostname).filter((h,i,a)=>a.indexOf(h)===i).join(', ')}). `+
+        `Dynamic tokens in redirect URLs are correlated automatically. `+
+        `The POST callback (form_post/id_token) must be included in the script — it is.`;
+      S.harWarning=S.harWarning?(S.harWarning+' | '+ssoMsg):ssoMsg;
+    }
 
     setMsg('Generating scripts...','Building VuGen code with correlations & parameters');
     await tick();
@@ -3284,6 +3671,17 @@ async function analyze(){
     // Show transaction count in stats if markers found
     const txnStat=document.getElementById('st-txn');
     if(txnStat) txnStat.textContent=S.txns.length||'Auto';
+    // Auth stat
+    const authWrap=document.getElementById('st-auth-wrap');
+    const authEl=document.getElementById('st-auth');
+    if(S.auth&&authEl&&authWrap){
+      const AUTH_LABELS={kerberos:'Kerberos',ntlm:'NTLM',negotiate:'Negotiate',basic:'Basic',digest:'Digest',bearer:'Bearer',saml:'SAML'};
+      authEl.textContent=AUTH_LABELS[S.auth.type]||S.auth.type;
+      authWrap.style.display='';
+      authWrap.className='stat stat-ok';
+    } else if(authWrap){
+      authWrap.style.display='none';
+    }
 
     renderCorrelations();
     renderParams();

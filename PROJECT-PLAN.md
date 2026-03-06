@@ -37,13 +37,16 @@
 
 ---
 
-### Tool 2 — VuGen-Script-Studio.html (TO BE BUILT)
-**Status:** Not started
+### Tool 2 — VuGen-Script-Studio.html (COMPLETE)
+**Status:** Complete and working. Deployed at `git@github.com:ScriptSavant1/vugenCustomRecorder.git`
 
 **What it does:**
-- Takes 1 or 2 HAR files
-- Runs correlation engine (two-HAR diff algorithm)
-- Adds parameterization, response validation, exception handling
+- Takes 1 or 2 HAR files (or `chrome://net-export/` NetLog JSON)
+- Runs two-HAR diff correlation algorithm — detects all dynamic values automatically
+- Adds parameterization (username, password, dates, card numbers, server host)
+- Exception handling (try/catch per transaction, throw on HTTP errors)
+- Authentication detection (Kerberos, NTLM, Negotiate, Digest, Basic, Bearer, SAML)
+- SSO/OAuth redirect chain detection and correlation
 - Downloads complete VuGen project ZIP (ready to open in VuGen, no manual steps)
 
 ---
@@ -517,65 +520,56 @@ try {
 
 ---
 
-## 11. Build Plan
+## 11. Completed Build Phases
 
-### Phase 1 — Upgrade VuGen-Recorder.html (Quick Win)
-**What:** Instead of downloading 5 loose files, download a complete ZIP project.
+### Phase 1 — VuGen-Recorder.html ZIP Download ✅
+ZIP download with JSZip (inlined), script name input, complete project structure for both protocols.
 
-**Changes to VuGen-Recorder.html:**
-- Add JSZip library (via CDN or inline)
-- Add script name input field (user types e.g. "T01_Login_Script")
-- Replace individual download buttons with "Download Web HTTP/HTML Project" / "Download DevWeb Project"
-- Port generator logic from bruno-devweb-converter for config files
-- ZIP structure: `ScriptName/Action.c`, `ScriptName/globals.h`, etc.
+### Phase 2 — VuGen-Script-Studio.html Core ✅
+Two-HAR diff correlation engine. Match pairs by method+normalizedURL, diff all locations, back-trace to source response, generate extractors (jsonpath, boundary, boundary_header, html, cookie, generate).
 
-**Effort:** 1-2 days
+### Phase 3 — Exception Handling ✅
+try/catch per action block, `_activeTxn` tracking, `throw new Error()` on HTTP errors, `load.exit(load.ExitType.iteration,...)`.
+
+### Phase 4/5 — Parameterization ✅
+`detectParams()` scans POST bodies, `genParamsYml()`, `genParamFilePrm()`, `genCollectionDataCsv()`. Preview tabs, params panel. Both DevWeb and Web HTTP/HTML.
+
+### Phase 6 — Header Generation ✅
+`genActionC()`: `web_add_auto_header()` global (key-presence ≥80%) + `web_add_header()` per-request override.
+`genMainJS()`: `load.WebRequest.defaults.headers` + per-request extra headers.
+
+### Phase 7 — genMainJS Header Substitution Bug Fix ✅ (Studio only)
+
+### Phase 8 — NetLog Support ✅
+Both tools accept `chrome://net-export/` JSON. Enables multi-tab recording (popups, new windows). POST bodies unavailable in NetLog (TODO emitted).
+
+### Phase 9 — hdrTitleCase() Fix ✅
+Correct hyphen-preserving title case: `x-xsrf-header` → `X-Xsrf-Header`.
+
+### Phase 10 — Authentication Detection ✅
+Kerberos/NTLM/Negotiate/Digest/Basic/Bearer/SAML. `web_set_user()` + runtime settings (Web); `load.setUserCredentials()` + `rts.yml` (DevWeb).
+
+### Phase 11 — ServerHost Parameterization ✅
+Dominant hostname (>35%) → `{ServerHost}` / `${load.params.ServerHost}` in all URLs and Referer headers.
+
+### Phase 12 — Edge Cases ✅
+Multipart TODO, VIEWSTATE/large .NET hidden field TODO, `respHdrsMap` on all entries.
+
+### Phase 13 — Smart Header Logic Overhaul ✅
+Key-presence threshold, force-global user-agent/accept-language, `await .send()`, expanded SKIP_HDRS.
+
+### Phase 14 — SSO/OAuth Redirect Chain Handling ✅ (Studio only)
+`findValueInResponse()` Location header extraction, `singleHarCorrelate()` redirect chain pass, SSO warning detection.
+
+### Phase 15 — 3xx Redirect Comments ✅
+All 4 generators emit `// HTTP 3xx redirect — VuGen follows subsequent redirects automatically` before each 3xx request.
 
 ---
 
-### Phase 2 — VuGen-Script-Studio.html (New Tool)
-**What:** Advanced tool with correlation, parameterization, validation, exception handling.
-
-**UI Layout:**
-```
-┌─────────────────────────────────────────────────────────────────┐
-│  VuGen Script Studio                                            │
-├─────────────────────────────────────────────────────────────────┤
-│  HAR File 1: [Drop here or Browse]   HAR File 2: [Optional]    │
-│  Protocol: ○ Web HTTP/HTML  ○ DevWeb  ○ Both                   │
-│  Script Name: [____________]    [⚡ Analyze & Generate]         │
-├─────────────────────────────────────────────────────────────────┤
-│  ANALYSIS RESULTS                                               │
-│  ┌─────────────────┐ ┌──────────────────┐ ┌─────────────────┐  │
-│  │ Correlations (4)│ │Parameters (3)    │ │Validations (5)  │  │
-│  │ ☑ AuthToken     │ │ ☑ Username       │ │ ☑ T01 Welcome   │  │
-│  │   HIGH ████     │ │ ☑ BaseURL        │ │ ☑ T02 dashboard │  │
-│  │ ☑ CSRFToken     │ │ ☑ SearchTerm     │ │ ☑ Error check   │  │
-│  │   HIGH ████     │ │                  │ │                  │  │
-│  │ ☐ timestamp     │ │                  │ │                  │  │
-│  │   LOW  ██       │ │                  │ │                  │  │
-│  └─────────────────┘ └──────────────────┘ └─────────────────┘  │
-├─────────────────────────────────────────────────────────────────┤
-│  SCRIPT PREVIEW  [Action.c] [main.js]                           │
-│  ┌─────────────────────────────────────────────────────────┐    │
-│  │ (generated script)                                      │    │
-│  └─────────────────────────────────────────────────────────┘    │
-├─────────────────────────────────────────────────────────────────┤
-│  [⬇ Download Web HTTP/HTML Project]  [⬇ Download DevWeb Project]│
-└─────────────────────────────────────────────────────────────────┘
-```
-
-**Build Order:**
-1. HAR parser (trivial — HAR is standard JSON)
-2. Single-HAR pattern-based correlation (sessions, JWTs, cookies)
-3. Basic parameterization (base URL, credentials)
-4. Config file generators (port from bruno-devweb-converter)
-5. ZIP download with complete project structure
-6. Two-HAR diff correlation (the advanced algorithm)
-7. Response validation generator
-8. Exception handling wrapper
-
-**Effort:** 5-7 days
+## Next Possible Features
+- Response validation auto-detection (`web_reg_find` / `TextCheckExtractor` on login responses)
+- Duplicate request dedup option
+- Long-polling/SSE request special handling
 
 ---
 
@@ -631,5 +625,5 @@ Key confirmed API points are captured in this document and in `memory/protocols.
 
 ---
 
-*Last updated: 2026-02-25*
+*Last updated: 2026-03-06*
 *Generated by Claude Sonnet 4.6 based on full project analysis*

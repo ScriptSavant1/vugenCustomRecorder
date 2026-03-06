@@ -16,6 +16,7 @@ A set of **zero-installation** browser tools that replace VuGen's blocked networ
 | `USER-GUIDE.md` | Full step-by-step guide for both tools |
 | `QUICK-REFERENCE.md` | Printable one-page cheat sheet |
 | `TROUBLESHOOTING.md` | Solutions to common problems |
+| `TECHNICAL-REFERENCE.md` | Developer deep-dive — architecture, all features, how to extend |
 
 ---
 

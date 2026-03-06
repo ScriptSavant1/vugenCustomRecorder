@@ -299,6 +299,7 @@ https://github.com/nodeca/pako/blob/main/LICENSE
     </div>
     <div class="tbar-sep"></div>
     <span class="fmt-badge" id="fmt-badge">&#x1F310; Web HTTP/HTML</span>
+    <span class="fmt-badge" id="auth-badge" style="display:none;background:#6366f1;color:#fff;margin-left:4px"></span>
     <button class="btn btn-muted btn-sm" onclick="openFmtModal(true)">&#x2699; Change Format</button>
     <button class="btn btn-muted btn-sm" id="btn-collapse-all" style="display:none" onclick="toggleCollapseAll()">&#x2296; Collapse All</button>
     <span id="stats"></span>
@@ -457,7 +458,9 @@ const S = {
   isNetLogSource: false, // true when loaded from chrome://net-export/ NetLog
   domainFilter: {},   // hostname -> true (include) | false (exclude)
   domainStats: {},    // hostname -> {count, size}
-  collapsed: {}       // txnName -> true (collapsed) | false (expanded)
+  collapsed: {},      // txnName -> true (collapsed) | false (expanded)
+  auth: null,         // detected auth {type, host, port, hostport, realm?, username?}
+  serverHost: null    // detected primary server {host, proto, prefix, count}
 };
 
 const COLORS = [
@@ -631,12 +634,12 @@ function parseNetLog(netlog){
     const hdrsMap={};
     for(const h of reqHdrs) hdrsMap[h.name.toLowerCase()]=h.value;
 
-    // Content-Type from response headers
+    // Build respHdrsMap from response headers
+    const respHdrsMap={};
     for(const h of respHdrs){
-      if(h.name.toLowerCase()==='content-type'){
-        ct=h.value.split(';')[0].trim();
-        break;
-      }
+      const k=h.name.toLowerCase();
+      respHdrsMap[k]=h.value;
+      if(k==='content-type') ct=h.value.split(';')[0].trim();
     }
 
     entries.push({
@@ -650,6 +653,7 @@ function parseNetLog(netlog){
       dur: 0,         // NetLog tick resolution not reliable per-request
       reqHdrs,
       hdrsMap,
+      respHdrsMap,
       body: null,     // POST bodies not available in NetLog
       referer: hdrsMap['referer']||'',
       isMarker:false, markerType:null, txnName:null,
@@ -678,6 +682,8 @@ function processHAR(har){
   S.entries = raw.map(e=>{
     const hdrs={};
     (e.request.headers||[]).forEach(h=>{ hdrs[h.name.toLowerCase()]=h.value; });
+    const respHdrs={};
+    (e.response.headers||[]).forEach(h=>{ respHdrs[h.name.toLowerCase()]=h.value; });
     const ct=((e.response.content&&e.response.content.mimeType)||'').split(';')[0].trim();
     return {
       id: ++id,
@@ -689,6 +695,7 @@ function processHAR(har){
       dur:  Math.round(e.time||0),
       reqHdrs: e.request.headers||[],
       hdrsMap: hdrs,
+      respHdrsMap: respHdrs,
       body: e.request.postData||null,
       referer: hdrs['referer']||'',
       isMarker:false, markerType:null, txnName:null,
@@ -949,6 +956,15 @@ function renderStats(){
     `${shown}/${total} requests  |  ${tc} transaction${tc!==1?'s':''}`;
   // Show/hide NetLog warning banner
   document.getElementById('netlog-banner').classList.toggle('hidden', !S.isNetLogSource);
+  // Show/hide auth badge
+  const authBadge=document.getElementById('auth-badge');
+  if(S.auth){
+    const AUTH_BADGE_LABELS={kerberos:'&#x1F512; Kerberos',ntlm:'&#x1F512; NTLM',negotiate:'&#x1F512; Negotiate',basic:'&#x1F512; Basic Auth',digest:'&#x1F512; Digest Auth',bearer:'&#x1F511; Bearer Token',saml:'&#x1F511; SAML'};
+    authBadge.innerHTML=AUTH_BADGE_LABELS[S.auth.type]||'&#x1F512; Auth';
+    authBadge.style.display='';
+  } else {
+    authBadge.style.display='none';
+  }
 }
 
 // ===========================================================================
@@ -1002,23 +1018,71 @@ function genActionC(){
   function hdrTitleCase(n){ return n.split('-').map(w=>w?w[0].toUpperCase()+w.slice(1):w).join('-'); }
   // Count header name+value occurrences across all visible (non-filtered, non-marker) entries
   const visEntries=S.entries.filter(e=>!e.filtered&&!e.isMarker);
-  const hdrFreq={};
+  const hdrFreq={};    // k → Map<value, count-of-entries-with-that-value>
+  const hdrKeyFreq={}; // k → count-of-entries-that-have-this-header (any value)
   for(const ev of visEntries){
+    const seenKeys=new Set();
     for(const h of (ev.reqHdrs||[])){
       const k=h.name.toLowerCase();
       if(SKIP_HDR_AC.has(k)||k.startsWith(':')) continue;
       if(!hdrFreq[k]) hdrFreq[k]=new Map();
       hdrFreq[k].set(h.value,(hdrFreq[k].get(h.value)||0)+1);
+      if(!seenKeys.has(k)){ seenKeys.add(k); hdrKeyFreq[k]=(hdrKeyFreq[k]||0)+1; }
     }
   }
-  // Headers appearing with the same value in >=80% of entries -> web_add_auto_header (global)
+  // Global headers: key appears on ≥80% of entries → use most common value as web_add_auto_header
+  // This correctly handles headers like Accept that have 2 values (nav text/html + XHR json):
+  // the most common value becomes global; requests with a different value emit a per-request override.
   const autoHdrs={};
   const aThresh=Math.max(1,Math.ceil(visEntries.length*0.8));
   for(const [k,valMap] of Object.entries(hdrFreq)){
-    for(const [v,cnt] of valMap){ if(cnt>=aThresh){ autoHdrs[k]=v; break; } }
+    if((hdrKeyFreq[k]||0)>=aThresh){
+      // Key present on ≥80% of entries → pick most common value as global default
+      const [bestVal]=[...valMap.entries()].sort((a,b)=>b[1]-a[1])[0];
+      autoHdrs[k]=bestVal;
+    }
+  }
+  // Force-global: User-Agent and Accept-Language are always session-wide constants
+  for(const fk of ['user-agent','accept-language']){
+    if(hdrFreq[fk]&&autoHdrs[fk]===undefined){
+      const [bestVal]=[...hdrFreq[fk].entries()].sort((a,b)=>b[1]-a[1])[0];
+      autoHdrs[fk]=bestVal;
+    }
+  }
+  // When non-Bearer auth is detected, suppress Authorization header — web_set_user handles it
+  if(S.auth&&['kerberos','ntlm','negotiate','basic','digest'].includes(S.auth.type))
+    delete autoHdrs['authorization'];
+
+  // Helper: substitute primary server hostname with {ServerHost} param token
+  const _sh=S.serverHost;
+  function subHostC(url){
+    if(!_sh||!url.startsWith(_sh.prefix)) return url;
+    return _sh.proto+'//{ServerHost}'+url.slice(_sh.prefix.length);
   }
 
   let o='Action()\n{\n\n\tweb_set_sockets_option("SSL_VERSION", "AUTO");\n\n';
+  // Server configuration
+  if(_sh){
+    o+=`\t// Server configuration — update "ServerHost" value to target different environments\n`;
+    o+=`\t// e.g. test: ${_sh.host}  prod: prod-server.company.com\n`;
+    o+=`\tlr_save_string("${_sh.host}", "ServerHost");\n\n`;
+  }
+  // Authentication
+  const AUTH_LABELS_C={kerberos:'Kerberos',ntlm:'NTLM',negotiate:'Negotiate (Kerberos/NTLM)',basic:'Basic',digest:'Digest'};
+  if(S.auth && AUTH_LABELS_C[S.auth.type]){
+    const lbl=AUTH_LABELS_C[S.auth.type];
+    o+=`\t// ${lbl} Authentication\n`;
+    if(S.auth.type==='kerberos'||S.auth.type==='negotiate'){
+      o+=`\t// Runtime Settings: Internet Protocol -> Preferences -> Authentication\n`;
+      o+=`\t//   [x] Enable Integrated Authentication\n`;
+      o+=`\t//   [x] Use canonical name in SPN\n`;
+    } else if(S.auth.type==='ntlm'){
+      o+=`\t// Runtime Settings: Internet Protocol -> Preferences -> Authentication\n`;
+      o+=`\t//   [x] Enable Integrated Authentication\n`;
+    }
+    const realm=S.auth.realm||S.auth.hostport||'server:port';
+    o+=`\tweb_set_user("{AuthUsername}", "{AuthPassword}", "${realm}");\n\n`;
+  }
   // Global headers (same value on every request)  -  set once with web_add_auto_header
   for(const [k,v] of Object.entries(autoHdrs)){
     o+=`\tweb_add_auto_header("${hdrTitleCase(k)}", "${escJs(v)}");\n`;
@@ -1038,22 +1102,28 @@ function genActionC(){
     }
     if(e.filtered) continue;
 
+    if(e.status>=300&&e.status<400)
+      o+=`\t// HTTP ${e.status} redirect — VuGen follows subsequent redirects automatically\n`;
+
     const n=name(e.url);
     const ct=e.ct||'text/html';
     const ref=e.referer||'';
     const sn=`t${snap++}.inf`;
 
-    // Per-request headers: not covered by global auto-headers and not skip-listed
+    // Per-request headers: only emit when value DIFFERS from global default (as an override)
     for(const h of (e.reqHdrs||[])){
       const k=h.name.toLowerCase();
       if(SKIP_HDR_AC.has(k)||k.startsWith(':')) continue;
-      if(autoHdrs[k]!==undefined) continue;   // already set globally
+      if(autoHdrs[k]===h.value) continue;         // global already covers this exact value — skip
+      if(k==='accept'&&h.value==='*/*') continue; // VuGen default — never needed
+      // Authorization is handled by web_set_user for non-Bearer auth; Bearer is dynamic (manual)
+      if(k==='authorization'&&S.auth&&['kerberos','ntlm','negotiate','basic','digest'].includes(S.auth.type)) continue;
       o+=`\tweb_add_header("${hdrTitleCase(k)}", "${escJs(h.value)}");\n`;
     }
 
     if(e.method==='GET'||e.method==='HEAD'){
-      o+=`\tweb_url("${n}",\n\t\t"URL=${e.url}",\n\t\t"Resource=0",\n`;
-      o+=`\t\t"RecContentType=${ct}",\n\t\t"Referer=${ref}",\n`;
+      o+=`\tweb_url("${n}",\n\t\t"URL=${subHostC(e.url)}",\n\t\t"Resource=0",\n`;
+      o+=`\t\t"RecContentType=${ct}",\n\t\t"Referer=${subHostC(ref)}",\n`;
       o+=`\t\t"Snapshot=${sn}",\n\t\t"Mode=HTML",\n\t\tLAST);\n\n`;
     } else {
       let encType='application/x-www-form-urlencoded';
@@ -1065,6 +1135,12 @@ function genActionC(){
       // Detect content-type from request headers if body.mimeType not set
       const ctHdr=(e.hdrsMap['content-type']||'').split(';')[0].trim();
       if(!e.body && ctHdr) encType=ctHdr;
+      // Multipart body detection
+      if(encType==='multipart/form-data'){
+        o+=`\t// TODO: Multipart body detected. VuGen uses web_add_body_part() for multipart uploads.\n`;
+        o+=`\t// Consider splitting into parts: web_add_header("Content-Type","multipart/form-data; boundary=...") + individual web_add_body_part() calls.\n`;
+        o+=`\t// For binary file uploads, use BodyFilePath= attribute or record directly in VuGen.\n`;
+      }
       // Always use BodyBinary= to match VuGen native recording behavior.
       // Body= causes VuGen attribute parser errors with JSON braces, colons, and other special chars.
       const isBinary = true;
@@ -1076,9 +1152,14 @@ function genActionC(){
       if(e._fromNetLog && !body){
         o+=`\t// TODO: POST body not available in NetLog - add BodyBinary= with your recorded request body\n`;
       }
-      o+=`\tweb_custom_request("${n}",\n\t\t"URL=${e.url}",\n\t\t"Method=${e.method}",\n`;
+      // Large body warning (e.g. .NET __VIEWSTATE not yet correlated)
+      if(rawBodyText&&rawBodyText.length>1500&&!rawBodyText.includes('{')&&/__VIEWSTATE|__EVENTVALIDATION|__RequestVerificationToken/.test(rawBodyText)){
+        o+=`\t// TODO: Large .NET hidden field(s) detected. These values are dynamic per-session.\n`;
+        o+=`\t// Use VuGen-Script-Studio.html with two HARs to auto-correlate these values.\n`;
+      }
+      o+=`\tweb_custom_request("${n}",\n\t\t"URL=${subHostC(e.url)}",\n\t\t"Method=${e.method}",\n`;
       o+=`\t\t"Resource=0",\n\t\t"RecContentType=${ct}",\n`;
-      o+=`\t\t"Referer=${ref}",\n\t\t"Snapshot=${sn}",\n\t\t"Mode=HTML",\n`;
+      o+=`\t\t"Referer=${subHostC(ref)}",\n\t\t"Snapshot=${sn}",\n\t\t"Mode=HTML",\n`;
       o+=`\t\t"EncType=${encType}",\n`;
       if(body){
         // Smart chunking  -  never break inside an escape sequence (\xHH, \X).
@@ -1120,15 +1201,26 @@ function genActionC(){
 // ===========================================================================
 // Headers never included anywhere (browser-internal / connection-level)
 const SKIP_HDRS=new Set([
-  'host','content-length','connection',
-  // Cookie headers  -  managed by DevWeb SDK cookie jar automatically
+  // Connection-level — managed by the DevWeb HTTP engine
+  'host','content-length','connection','keep-alive','transfer-encoding','te','trailer',
+  'expect',          // 100-continue — connection-level
+  'via',             // proxy-inserted, irrelevant to load test
+  // Encoding/compression — DevWeb SDK handles automatically
+  'accept-encoding',
+  // Cookie jar — DevWeb SDK manages Set-Cookie→Cookie automatically
   'cookie','cookie2',
+  // Browser client hints / fetch metadata — meaningless in headless load test
   'sec-ch-ua','sec-ch-ua-mobile','sec-ch-ua-platform',
   'sec-fetch-dest','sec-fetch-mode','sec-fetch-site','sec-fetch-user',
+  // Browser-only privacy/security hints
   'upgrade-insecure-requests','dnt',
-  'if-none-match','if-modified-since','if-unmodified-since',
-  'te','trailer','transfer-encoding','via','x-forwarded-for',
-  'cache-control','pragma'
+  // HTTP/2 priority hint — not applicable to load test protocol layer
+  'priority',
+  // Conditional cache headers — not needed in scripted replay
+  'if-none-match','if-modified-since','if-unmodified-since','if-match',
+  'cache-control','pragma',
+  // Proxy / forwarding headers
+  'x-forwarded-for'
 ]);
 
 function genMainJS(){
@@ -1162,14 +1254,10 @@ function genMainJS(){
 
   // Extract default headers from first visible request
   const firstE=S.entries.find(e=>!e.isMarker&&!e.filtered);
-  const defHdrs=firstE?filtHdrs(firstE):{
-    'accept':'*/*',
-    'accept-encoding':'gzip, deflate, br',
-    'accept-language':'en-US,en;q=0.9'
-  };
+  const defHdrs=firstE?filtHdrs(firstE):{'accept-language':'en-US,en;q=0.9'};
 
   // -- initialize ------------------------------------------------------------
-  o+='load.initialize("init", async function() {\n';
+  o+='load.initialize("Initialize", async function() {\n';
   o+='    load.log("\uD83D\uDE80 Initializing Vuser " + load.config.user.userId, load.LogLevel.info);\n\n';
   o+='    // Initialize global variables for correlated dynamic values\n';
   o+='    // load.global.accessToken = null;\n';
@@ -1188,6 +1276,25 @@ function genMainJS(){
   for(const [k,v] of Object.entries(defHdrs))
     o+=`        "${escJs(k)}": "${escJs(v)}",\n`;
   o+='    };\n\n';
+
+  // Authentication credentials
+  const AUTH_LABELS_JS={kerberos:'Kerberos',ntlm:'NTLM',negotiate:'Negotiate (Kerberos/NTLM)',basic:'Basic',digest:'Digest'};
+  if(S.auth && AUTH_LABELS_JS[S.auth.type]){
+    const lbl=AUTH_LABELS_JS[S.auth.type];
+    o+=`    // ${lbl} Authentication\n`;
+    if(S.auth.type==='kerberos'||S.auth.type==='negotiate'){
+      o+=`    // Runtime Settings: Replay -> enableIntegratedAuthentication: true\n`;
+      o+=`    // Runtime Settings: Replay -> useCanonicalNameInSPN: true\n`;
+    } else if(S.auth.type==='ntlm'){
+      o+=`    // Runtime Settings: Replay -> enableIntegratedAuthentication: true\n`;
+    }
+    const hostArg=(S.auth.type==='basic'||S.auth.type==='digest')?'"*"':`"${S.auth.hostport||'server:port'}"`;
+    o+=`    load.setUserCredentials({\n`;
+    o+=`        username: load.params.AuthUsername,\n`;
+    o+=`        password: load.params.AuthPassword,\n`;
+    o+=`        host: ${hostArg}\n`;
+    o+=`    });\n\n`;
+  }
 
   // Transaction declarations (all at top)
   if(S.txns.length>0){
@@ -1220,21 +1327,42 @@ function genMainJS(){
     }
     if(e.filtered) continue;
 
+    if(e.status>=300&&e.status<400)
+      o+=`    // HTTP ${e.status} redirect — VuGen follows subsequent redirects automatically\n`;
+
     const rn=rqName(e.url);
     const numStr=String(rid).padStart(2,'0');
     const varN=`webResponse_${numStr}`;
 
-    // Only add headers that differ from defaults
+    // Only add headers that differ from defaults; skip defaults and redundant values
     const allHdrs=filtHdrs(e);
     const extraHdrs={};
     for(const [k,v] of Object.entries(allHdrs)){
-      if(defHdrs[k]===undefined||defHdrs[k]!==v) extraHdrs[k]=v;
+      const kl=k.toLowerCase();
+      if(kl==='accept'&&v==='*/*') continue;  // DevWeb default — never needed
+      if(defHdrs[k]!==undefined&&defHdrs[k]===v) continue;  // same as global default — skip
+      // Authorization: handled by load.setUserCredentials for non-Bearer auth
+      if(kl==='authorization'&&S.auth&&['kerberos','ntlm','negotiate','basic','digest'].includes(S.auth.type)) continue;
+      extraHdrs[k]=v;
     }
 
     o+=`    // ${rn}\n`;
-    o+=`    const ${varN} = new load.WebRequest({\n`;
+    // Multipart body detection
+    const mjCt=(e.hdrsMap&&e.hdrsMap['content-type']||'').split(';')[0].trim();
+    if(mjCt==='multipart/form-data'){
+      o+=`    // TODO: Multipart body detected. For file uploads in DevWeb:\n`;
+      o+=`    // const formData = new load.FormData();\n`;
+      o+=`    // formData.append('field', value); // or readFile() for binary\n`;
+    }
+    o+=`    const ${varN} = await new load.WebRequest({\n`;
     o+=`        "id": ${rid},\n`;
-    o+=`        "url": "${escJs(e.url)}",\n`;
+    // ServerHost URL substitution
+    if(S.serverHost && e.url.startsWith(S.serverHost.prefix)){
+      const path=e.url.slice(S.serverHost.prefix.length).replace(/\\/g,'\\\\').replace(/`/g,'\\`');
+      o+=`        "url": \`${S.serverHost.proto}//\${load.params.ServerHost}${path}\`,\n`;
+    } else {
+      o+=`        "url": "${escJs(e.url)}",\n`;
+    }
     o+=`        "method": "${e.method}",\n`;
     if(Object.keys(extraHdrs).length>0){
       o+=`        "headers": {\n`;
@@ -1243,11 +1371,17 @@ function genMainJS(){
       o+=`        },\n`;
     }
     if(e.body&&e.body.text){
-      o+=`        "body": \`${escTpl(e.body.text)}\`,\n`;
+      const bText=e.body.text;
+      const bMime=(e.body.mimeType||'').split(';')[0].trim();
+      // Large .NET hidden field warning
+      if(bText.length>1500&&bMime==='application/x-www-form-urlencoded'&&/__VIEWSTATE|__EVENTVALIDATION|__RequestVerificationToken/.test(bText)){
+        o+=`        // TODO: Large .NET hidden field(s) in body. Use Script Studio with two HARs to auto-correlate.\n`;
+      }
+      o+=`        "body": \`${escTpl(bText)}\`,\n`;
     } else if(e._fromNetLog && e.method!=='GET' && e.method!=='HEAD'){
       o+=`        // TODO: POST body not available in NetLog - add "body" property with your recorded request body\n`;
     }
-    o+=`    }).sendSync();\n`;
+    o+=`    }).send();\n`;
     o+=`    load.log(\`${rn} - Status: \${${varN}.status}\`, load.LogLevel.info);\n\n`;
 
     if(currentTxn){
@@ -1265,7 +1399,7 @@ function genMainJS(){
   o+='});\n\n';
 
   // -- finalize --------------------------------------------------------------
-  o+='load.finalize("finalize", async function() {\n';
+  o+='load.finalize("Finalize", async function() {\n';
   o+='    load.log("\uD83C\uDFC1 Finalizing Vuser " + load.config.user.userId, load.LogLevel.info);\n\n';
   o+='    // Cleanup code here if needed\n\n';
   o+='    load.log("\u2713 Finalization complete", load.LogLevel.info);\n';
@@ -1290,7 +1424,122 @@ function genGlobalsH(){
     `#endif // _GLOBALS_H\n`;
 }
 
+// ===========================================================================
+// AUTHENTICATION DETECTION
+// ===========================================================================
+function detectAuth(entries){
+  function urlParts(url){
+    try{
+      const u=new URL(url);
+      const port=u.port||(u.protocol==='https:'?'443':'80');
+      return{host:u.hostname,port,hostport:u.hostname+':'+port};
+    }catch{return{host:'',port:'443',hostport:''};}
+  }
+  const PRIO={kerberos:7,ntlm:6,negotiate:5,digest:4,basic:3,bearer:2,saml:1};
+  let best=null;
+  function set(type,parts,extra){
+    if(!best||(PRIO[type]||0)>(PRIO[best.type]||0))
+      best={type,...parts,...(extra||{})};
+  }
+  for(const e of entries){
+    if(e.isMarker) continue;
+    const parts=urlParts(e.url);
+    // Check WWW-Authenticate in response headers
+    const wwwAuth=(e.respHdrsMap||{})['www-authenticate']||'';
+    if(/^negotiate\b/i.test(wwwAuth)) set('negotiate',parts);
+    else if(/^ntlm\b/i.test(wwwAuth)) set('ntlm',parts);
+    else if(/^digest\b/i.test(wwwAuth)){
+      const realm=(wwwAuth.match(/realm="([^"]+)"/i)||[])[1]||parts.hostport;
+      set('digest',parts,{realm});
+    } else if(/^basic\b/i.test(wwwAuth)){
+      const realm=(wwwAuth.match(/realm="([^"]+)"/i)||[])[1]||parts.hostport;
+      set('basic',parts,{realm});
+    }
+    // Check Authorization in request headers
+    const authHdr=(e.hdrsMap||{})['authorization']||'';
+    if(/^negotiate /i.test(authHdr)){
+      let type='negotiate';
+      try{
+        const tok=authHdr.split(' ')[1]||'';
+        const dec=atob(tok.substring(0,16));
+        type=dec.includes('NTLMSSP')?'ntlm':'kerberos';
+      }catch{}
+      set(type,parts);
+    } else if(/^ntlm /i.test(authHdr)){
+      set('ntlm',parts);
+    } else if(/^basic /i.test(authHdr)){
+      let username='';
+      try{username=atob(authHdr.split(' ')[1]||'').split(':')[0];}catch{}
+      set('basic',parts,{realm:parts.hostport,username});
+    } else if(/^digest /i.test(authHdr)){
+      const realm=(authHdr.match(/realm="([^"]+)"/i)||[])[1]||parts.hostport;
+      const username=(authHdr.match(/username="([^"]+)"/i)||[])[1]||'';
+      set('digest',parts,{realm,username});
+    } else if(/^bearer /i.test(authHdr)){
+      set('bearer',parts);
+    }
+    // Check SAML in POST body
+    const postText=(e.body&&e.body.text)||'';
+    if(postText.includes('SAMLResponse')||postText.includes('SAMLRequest'))
+      set('saml',parts);
+  }
+  return best;
+}
+
+function genDefaultCfg(auth){
+  if(!auth||!['kerberos','negotiate','ntlm'].includes(auth.type))
+    return WEB_DEFAULT_CFG;
+  const overrides={};
+  if(auth.type==='kerberos'||auth.type==='negotiate'){
+    overrides['IntegratedAuthentication']='1';
+    overrides['SPNCNameLookup']='1';
+  } else {
+    overrides['IntegratedAuthentication']='1';
+    overrides['UseNativeNTLM']='1';
+    overrides['OverrideNTLMCreds']='1';
+  }
+  return WEB_DEFAULT_CFG.split('\n').map(line=>{
+    const eq=line.indexOf('=');
+    if(eq<0) return line;
+    const key=line.substring(0,eq);
+    return key in overrides ? key+'='+overrides[key] : line;
+  }).join('\n');
+}
+
+function genRtsYml(auth){
+  if(!auth||!['kerberos','negotiate','ntlm'].includes(auth.type))
+    return DEVWEB_RTS_YML;
+  return DEVWEB_RTS_YML.replace(
+    'enableIntegratedAuthentication: false',
+    'enableIntegratedAuthentication: true'
+  );
+}
+
+function detectServerHost(entries){
+  const counts={};
+  for(const e of entries){
+    try{
+      const u=new URL(e.url);
+      if(!u.hostname) continue;
+      const stdPort=u.protocol==='https:'?'443':'80';
+      const portPart=u.port&&u.port!==stdPort?':'+u.port:'';
+      const host=u.hostname+portPart;
+      const prefix=u.protocol+'//'+host;
+      if(!counts[prefix]) counts[prefix]={host,proto:u.protocol,prefix,count:0};
+      counts[prefix].count++;
+    }catch{}
+  }
+  const sorted=Object.values(counts).sort((a,b)=>b.count-a.count);
+  if(!sorted.length) return null;
+  const total=sorted.reduce((s,e)=>s+e.count,0);
+  const top=sorted[0];
+  if(top.count/total<0.35&&sorted.length>1) return null; // no dominant host
+  return top;
+}
+
 function buildScripts(){
+  S.auth=detectAuth(S.entries);
+  S.serverHost=detectServerHost(S.entries.filter(e=>!e.filtered&&!e.isMarker));
   const isWeb = S.format==='webhttp' || S.format==='both';
   const isDev = S.format==='devweb'  || S.format==='both';
   S.scripts={};
@@ -1764,7 +2013,7 @@ async function dlZip(format){
     zip.file('vuser_init.c',     S.scripts.vi||'');
     zip.file('vuser_end.c',      S.scripts.ve||'');
     zip.file('globals.h',        S.scripts.gh||'');
-    zip.file('default.cfg',      WEB_DEFAULT_CFG);
+    zip.file('default.cfg',      genDefaultCfg(S.auth));
     zip.file('default.usp',      WEB_DEFAULT_USP);
     zip.file(name+'.usr',        genUsrFile(name));
     zip.file('ScriptUploadMetadata.xml', genScriptUploadMetadata(name));
@@ -1782,10 +2031,24 @@ async function dlZip(format){
     const name='DevWebScript';
     const zip=new JSZip();
     zip.file('main.js',        S.scripts.mj||'');
-    zip.file('rts.yml',        DEVWEB_RTS_YML);
+    zip.file('rts.yml',        genRtsYml(S.auth));
     zip.file('scenario.yml',   DEVWEB_SCENARIO_YML);
-    zip.file('parameters.yml', 'parameters: []\n');
     zip.file('tsconfig.json',  DEVWEB_TSCONFIG_JSON);
+    if(S.serverHost){
+      // ServerHost parameter — change collection_data.csv value to switch environments
+      zip.file('parameters.yml',
+        'parameters:\n'+
+        '  - name: ServerHost\n'+
+        '    type: csv\n'+
+        '    fileName: collection_data.csv\n'+
+        '    columnName: ServerHost\n'+
+        '    nextValue: iteration\n'+
+        '    nextRow: sequential\n'+
+        '    onEnd: loop\n');
+      zip.file('collection_data.csv', 'ServerHost\n'+S.serverHost.host+'\n');
+    } else {
+      zip.file('parameters.yml', 'parameters: []\n');
+    }
     const blob=await zip.generateAsync({type:'blob'});
     const a=document.createElement('a');
     a.href=URL.createObjectURL(blob);
@@ -2024,9 +2287,10 @@ function showWelcome(){
 }
 function clearAll(){
   if(S.entries.length>0 && !confirm('Clear all data?')) return;
-  S.entries=[]; S.txns=[]; S.colorMap={}; S.selIds.clear(); S.scripts={}; S.pendingHar=null; S.pendingNetLog=null; S.isNetLogSource=false; S.domainFilter={}; S.domainStats={};
+  S.entries=[]; S.txns=[]; S.colorMap={}; S.selIds.clear(); S.scripts={}; S.pendingHar=null; S.pendingNetLog=null; S.isNetLogSource=false; S.domainFilter={}; S.domainStats={}; S.auth=null; S.serverHost=null;
   document.getElementById('tbody').innerHTML='';
   document.getElementById('stats').textContent='';
+  document.getElementById('auth-badge').style.display='none';
   document.getElementById('code-body').textContent='// Load a HAR file to generate scripts';
   document.getElementById('hf').value='';
   document.getElementById('dp-list').innerHTML='<div class="dp-empty">Load a HAR file</div>';
