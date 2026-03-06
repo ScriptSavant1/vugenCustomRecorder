@@ -982,12 +982,20 @@ function buildAutoFollowMap(entries) {
     while (prevI >= 0 && (entries[prevI].filtered || entries[prevI].isMarker)) prevI--;
     if (prevI < 0) continue;
     const prev = entries[prevI];
-    if (prev.status < 300 || (prev.status > 303 && prev.status !== 307)) continue;
-    const locVal = prev.respHdrsMap && (prev.respHdrsMap['location'] || prev.respHdrsMap['Location']);
+    // 300-303, 307, 308 are browser-auto-followed redirects
+    if (![301,302,303,307,308].includes(prev.status) && prev.status !== 300) continue;
+    const locVal = (prev.respHdrsMap || {})['location'];
     if (!locVal) continue;
     try {
-      const locAbsolute = new URL(locVal, prev.url).href;
-      if (locAbsolute === new URL(curr.url).href) autoFollowSet.add(i);
+      const loc = new URL(locVal, prev.url);
+      const tgt = new URL(curr.url);
+      // Compare origin + pathname, then query via URLSearchParams (handles %-encoding differences)
+      if (loc.origin === tgt.origin && loc.pathname === tgt.pathname) {
+        const lp = [...new URLSearchParams(loc.search)].sort((a,b) => a[0] < b[0] ? -1 : 1);
+        const tp = [...new URLSearchParams(tgt.search)].sort((a,b) => a[0] < b[0] ? -1 : 1);
+        if (lp.length === tp.length && lp.every((p,k) => p[0]===tp[k][0] && p[1]===tp[k][1]))
+          autoFollowSet.add(i);
+      }
     } catch {
       if (locVal === curr.url || curr.url.endsWith(locVal)) autoFollowSet.add(i);
     }
@@ -1032,6 +1040,9 @@ function genActionC(){
     nc[n]=1; return n;
   }
 
+  // Pre-compute auto-follow set so redirect entries can be excluded from header analysis
+  const acAutoFollowSet=buildAutoFollowMap(S.entries);
+
   // -- Header analysis: determine universal (auto) vs per-request headers ----
   // Headers handled by VuGen attributes or managed internally  -  never emit via web_add_header
   const SKIP_HDR_AC=new Set([
@@ -1061,8 +1072,8 @@ function genActionC(){
   ]);
   // Convert "accept-language" -> "Accept-Language"  -  split on hyphen, capitalise first char, rejoin
   function hdrTitleCase(n){ return n.split('-').map(w=>w?w[0].toUpperCase()+w.slice(1):w).join('-'); }
-  // Count header name+value occurrences across all visible (non-filtered, non-marker) entries
-  const visEntries=S.entries.filter(e=>!e.filtered&&!e.isMarker);
+  // Count header name+value occurrences across scripted entries (non-filtered, non-marker, non-redirect)
+  const visEntries=S.entries.filter((e,i)=>!e.filtered&&!e.isMarker&&!acAutoFollowSet.has(i));
   const hdrFreq={};    // k → Map<value, count-of-entries-with-that-value>
   const hdrKeyFreq={}; // k → count-of-entries-that-have-this-header (any value)
   for(const ev of visEntries){
@@ -1134,7 +1145,6 @@ function genActionC(){
   }
   if(Object.keys(autoHdrs).length) o+='\n';
   let snap=1;
-  const acAutoFollowSet=buildAutoFollowMap(S.entries);
 
   for(let idx=0;idx<S.entries.length;idx++){
     const e=S.entries[idx];
@@ -1304,8 +1314,10 @@ function genMainJS(){
     return h;
   }
 
-  // Extract default headers from first visible request
-  const firstE=S.entries.find(e=>!e.isMarker&&!e.filtered);
+  // Pre-compute auto-follow set so redirect entries can be excluded
+  const mjAutoFollowSet=buildAutoFollowMap(S.entries);
+  // Extract default headers from first scripted (non-redirect) request
+  const firstE=S.entries.find((e,i)=>!e.isMarker&&!e.filtered&&!mjAutoFollowSet.has(i));
   const defHdrs=firstE?filtHdrs(firstE):{'accept-language':'en-US,en;q=0.9'};
 
   // -- initialize ------------------------------------------------------------
@@ -1360,7 +1372,6 @@ function genMainJS(){
 
   // Process entries  -  all requests in one action, transactions started/stopped inline
   let currentTxn=null; // {name, tsNum}
-  const mjAutoFollowSet=buildAutoFollowMap(S.entries);
 
   for(let idx=0;idx<S.entries.length;idx++){
     const e=S.entries[idx];
