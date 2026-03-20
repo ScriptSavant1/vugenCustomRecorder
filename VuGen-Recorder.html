@@ -469,19 +469,20 @@ https://github.com/nodeca/pako/blob/main/LICENSE
 
   <!-- BOOKMARKLET SETUP -->
   <div class="bm-box">
-    <h3>&#x1F4CA; Step 1 &#x2014; Install the Recording Toolbar <span style="font-weight:400;font-size:12px">(one-time setup)</span></h3>
-    <p>Drag the button below onto your Bookmarks Bar. During recording, click it on any app page to show a <strong>floating recording bar</strong> &#x2014; just like VuGen&#x2019;s built-in recorder bar. The bar appears directly <strong>in the same browser window</strong>. Transaction state is saved automatically, so clicking the bookmark again after any navigation instantly restores your recording session.</p>
+    <h3>&#x1F516; Step 1 &#x2014; Install Transaction Bookmarks <span style="font-weight:400;font-size:12px">(one-time setup)</span></h3>
+    <p>Show the Bookmarks Bar (<strong>Ctrl+Shift+B</strong>), then <strong>drag both buttons below</strong> onto it. During recording, click <strong style="color:#166534">&#x25B6; START Transaction</strong> before each transaction and <strong style="color:#991b1b">&#x25A0; END Transaction</strong> after. A prompt lets you type the transaction name each time.</p>
     <div class="bm-links">
-      <a class="bm-drag bm-bar"
-         href="javascript:(function(){var X=document.getElementById('__vrbar');if(X){X.remove();return;}var SK='__vrS',st;try{st=JSON.parse(sessionStorage.getItem(SK))||{};}catch(e){st={};}var ct=st.ct||1,ac=st.ac||'',txn=st.txn||0;function sv(){try{sessionStorage.setItem(SK,JSON.stringify({ct:ct,ac:ac,txn:txn}));}catch(e){}}function dn(){return'T'+String(ct).padStart(2,'0')+'_Name';}function san(n){return n.replace(/[^a-zA-Z0-9_-]/g,'_').replace(/^_+|_+$/g,'')||dn();}function fire(u){new Image().src=u;}var el=document.createElement('div');el.id='__vrbar';el.style.cssText='position:fixed;top:0;right:0;z-index:2147483647;width:250px;background:linear-gradient(145deg,#1a3575,#1c3fac 55%,#2455c8);color:#fff;font-family:-apple-system,BlinkMacSystemFont,sans-serif;font-size:13px;border-radius:0 0 0 16px;box-shadow:-4px 4px 24px rgba(0,0,0,.5);user-select:none;';var hdr=document.createElement('div');hdr.style.cssText='display:flex;align-items:center;padding:10px 13px 8px;gap:7px;border-bottom:1px solid rgba(255,255,255,.1);';var ttl=document.createElement('span');ttl.style.cssText='font-weight:700;flex:1;font-size:13px;letter-spacing:-.3px;';ttl.textContent='VuGen Recorder';var rec=document.createElement('span');rec.style.cssText='display:flex;align-items:center;gap:3px;background:rgba(34,197,94,.15);border:1px solid rgba(34,197,94,.45);color:#4ade80;font-size:9px;font-weight:700;padding:2px 7px;border-radius:20px;';var dot=document.createElement('span');dot.style.cssText='width:5px;height:5px;background:#22c55e;border-radius:50%;';rec.appendChild(dot);rec.appendChild(document.createTextNode('REC'));var cx=document.createElement('span');cx.textContent='\xd7';cx.title='Close';cx.style.cssText='cursor:pointer;font-size:17px;color:rgba(255,255,255,.45);line-height:1;padding:0 1px;';cx.onclick=function(){el.remove();};hdr.appendChild(ttl);hdr.appendChild(rec);hdr.appendChild(cx);el.appendChild(hdr);var stats=document.createElement('div');stats.style.cssText='display:flex;margin:8px 13px;background:rgba(255,255,255,.1);border-radius:8px;overflow:hidden;border:1px solid rgba(255,255,255,.08);';function mks(id,v,lbl,br){var d=document.createElement('div');d.style.cssText='flex:1;text-align:center;padding:5px 2px;'+(br?'border-right:1px solid rgba(255,255,255,.1);':'');var n=document.createElement('div');n.id=id;n.style.cssText='font-size:'+(lbl==='Active'?'10px':'17px')+';font-weight:700;'+(lbl==='Active'?'padding-top:4px;':'');n.textContent=v;var l=document.createElement('div');l.style.cssText='font-size:8px;color:rgba(255,255,255,.45);text-transform:uppercase;letter-spacing:.5px;margin-top:1px;';l.textContent=lbl;d.appendChild(n);d.appendChild(l);return d;}stats.appendChild(mks('__vrR','0','Requests',true));stats.appendChild(mks('__vrT',String(txn),'Txns',true));stats.appendChild(mks('__vrA',ac||'\u2014','Active',false));el.appendChild(stats);var ir=document.createElement('div');ir.style.cssText='padding:0 13px 5px;';var ni=document.createElement('input');ni.placeholder=dn();ni.value=dn();ni.style.cssText='width:100%;padding:7px 10px;border-radius:7px;border:1px solid rgba(255,255,255,.2);background:rgba(255,255,255,.1);color:#fff;font-size:12px;font-family:inherit;outline:none;box-sizing:border-box;';var hint=document.createElement('div');hint.textContent='Enter = Start  \u00b7  Shift+Enter = End';hint.style.cssText='font-size:9px;color:rgba(255,255,255,.3);margin-top:3px;text-align:center;';ir.appendChild(ni);ir.appendChild(hint);el.appendChild(ir);var ab=document.createElement('div');ab.style.cssText='margin:5px 13px;padding:4px 9px;border-radius:7px;font-size:10px;min-height:22px;display:flex;align-items:center;gap:4px;';el.appendChild(ab);var btns=document.createElement('div');btns.style.cssText='display:flex;gap:7px;padding:0 13px 12px;';function mkb(id,icon,lbl,bg){var b=document.createElement('button');b.id=id;b.style.cssText='flex:1;height:46px;border:none;border-radius:10px;cursor:pointer;color:#fff;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;font-size:9px;font-weight:800;letter-spacing:.5px;text-transform:uppercase;background:'+bg+';box-shadow:0 3px 12px rgba(0,0,0,.3);';var ic=document.createElement('span');ic.textContent=icon;ic.style.fontSize='17px';var lb=document.createElement('span');lb.textContent=lbl;b.appendChild(ic);b.appendChild(lb);b.onmouseenter=function(){this.style.filter='brightness(1.15)';};b.onmouseleave=function(){this.style.filter='';};return b;}var sb=mkb('__vrsb','\u25b6','Start','linear-gradient(160deg,#22c55e,#15803d)');var eb=mkb('__vreb','\u23f9','End','linear-gradient(160deg,#ef4444,#b91c1c)');btns.appendChild(sb);btns.appendChild(eb);el.appendChild(btns);document.body.appendChild(el);setInterval(function(){dot.style.opacity=dot.style.opacity==='0.2'?'1':'0.2';},650);var rb=performance.getEntriesByType('resource').length;function updR(){var c=performance.getEntriesByType('resource').length;var re=document.getElementById('__vrR');if(re)re.textContent=Math.max(0,c-rb);}try{new PerformanceObserver(function(){updR();}).observe({entryTypes:['resource']});}catch(e){}function rf(){sv();var ea=document.getElementById('__vrA');var et=document.getElementById('__vrT');if(ea)ea.textContent=ac||'\u2014';if(et)et.textContent=String(txn);if(ac){ab.style.cssText='margin:5px 13px;padding:4px 9px;border-radius:7px;font-size:10px;min-height:22px;display:flex;align-items:center;gap:4px;background:rgba(74,222,128,.12);border:1px solid rgba(74,222,128,.3);color:#4ade80;';ab.textContent='\u23fa Active: '+ac;}else{ab.style.cssText='margin:5px 13px;padding:4px 9px;border-radius:7px;font-size:10px;min-height:22px;display:flex;align-items:center;gap:4px;background:rgba(255,255,255,.06);border:1px solid transparent;color:rgba(255,255,255,.3);';ab.textContent='No active transaction';}}ni.addEventListener('keydown',function(e){if(e.key==='Enter'&amp;&amp;!e.shiftKey){e.preventDefault();sb.click();}else if(e.key==='Enter'&amp;&amp;e.shiftKey){e.preventDefault();eb.click();}});sb.onclick=function(){var n=san(ni.value.trim());ac=n;txn++;ct++;fire('https://START-'+n+'.invalid/');ni.value=dn();rf();ni.focus();};eb.onclick=function(){if(!ac){ab.style.cssText='margin:5px 13px;padding:4px 9px;border-radius:7px;font-size:10px;min-height:22px;display:flex;align-items:center;gap:4px;background:rgba(239,68,68,.12);border:1px solid rgba(239,68,68,.3);color:#fca5a5;';ab.textContent='\u26a0 No active transaction to end';return;}fire('https://END-'+ac+'.invalid/');ac='';rf();ni.focus();};ni.focus();rf();updR();})();"
-         onclick="alert('Drag this button to your Bookmarks Bar &#x2014; do not click it here.');return false;">&#x1F4CA; VuGen Recorder Bar</a>
+      <a class="bm-drag bm-start"
+         href="javascript:(function(){try{var last=localStorage.getItem('_vugen_txn')||'T01_Login';var n=prompt('Start transaction name:',last);if(n){n=n.trim().replace(/[\s-]+/g,'_').replace(/[^a-zA-Z0-9_]/g,'');if(n){localStorage.setItem('_vugen_txn',n);new Image().src='https://START-'+n+'.invalid/';}}}catch(e){}})();"
+         onclick="alert('Drag this button to your Bookmarks Bar &#x2014; do not click it here.');return false;">&#x25B6; START Transaction</a>
+      <a class="bm-drag bm-end"
+         href="javascript:(function(){try{var last=localStorage.getItem('_vugen_txn')||'T01_Login';var n=prompt('End transaction name:',last);if(n){n=n.trim().replace(/[\s-]+/g,'_').replace(/[^a-zA-Z0-9_]/g,'');if(n)new Image().src='https://END-'+n+'.invalid/';}}catch(e){}})();"
+         onclick="alert('Drag this button to your Bookmarks Bar &#x2014; do not click it here.');return false;">&#x25A0; END Transaction</a>
     </div>
     <div class="bm-note">
       <strong>How it works:</strong>
-      Show the Bookmarks Bar (<strong>Ctrl+Shift+B</strong>), then drag the blue button above onto it.
-      During recording, navigate to your app and click the bookmark &#x2014; a <strong>floating bar appears in the top-right corner</strong> of the page.
-      Type a transaction name, click <strong>&#x25B6; Start</strong>, perform your steps, then click <strong>&#x23F9; End</strong>.
-      If the page navigates (or SSO redirects you), <strong>click the bookmark again</strong> on the new page &#x2014; the bar instantly reappears with your transaction state fully restored.
+      The last used transaction name is remembered automatically &#x2014; the END prompt pre-fills with the same name you used for START.
+      Both bookmarks fire a request to a <code>.invalid</code> domain which appears in the HAR and is detected as a transaction marker by this tool.
     </div>
     <div class="warn" style="margin-top:10px">&#x26A0; <strong>Bookmarklets only work on real websites.</strong> They will not respond on the browser&#x2019;s New Tab page or any <code>chrome://</code> page &#x2014; Chrome blocks them silently. Always navigate to your application URL first, then click the bookmark.</div>
   </div>
@@ -492,10 +493,10 @@ https://github.com/nodeca/pako/blob/main/LICENSE
     <ol class="steps">
       <li><strong>Navigate to your application</strong> in the browser (e.g. <code>https://myapp.company.com</code>)</li>
       <li>Press <strong>F12</strong> &rarr; click the <strong>Network</strong> tab &rarr; enable <strong>Preserve Log</strong> and <strong>Disable Cache</strong> checkboxes &rarr; click &#x1F6AB; to clear existing entries</li>
-      <li>Click the <strong style="color:#1d4ed8">&#x1F4CA; VuGen Recorder Bar</strong> bookmark &#x2014; a floating bar appears in the top-right corner of the page</li>
-      <li>Type a transaction name (e.g. <code>T01_Login</code>), then click <strong style="color:#166534">&#x25B6; Start</strong> or press <kbd>Enter</kbd>. The bar shows a live <strong>Requests</strong> count so you can see when the page has finished loading</li>
-      <li>Browse your application. If the page navigates, <strong>click the bookmark again</strong> &#x2014; the bar instantly reappears with your transaction name and state fully restored</li>
-      <li>When done with a transaction, click <strong style="color:#991b1b">&#x23F9; End</strong> or press <kbd>Shift+Enter</kbd>. The next transaction name is auto-filled (T02&hellip;)</li>
+      <li>Click the <strong style="color:#166534">&#x25B6; START Transaction</strong> bookmark &#x2014; type a name (e.g. <code>T01_Login</code>) and click OK</li>
+      <li>Perform all steps for that transaction (login, fill form, navigate, etc.)</li>
+      <li>Click the <strong style="color:#991b1b">&#x25A0; END Transaction</strong> bookmark &#x2014; the name is pre-filled from START, just click OK</li>
+      <li>Repeat START / END for each transaction (T02_Home, T03_Search&hellip;). Navigate freely between bookmarklet clicks &#x2014; markers always fire in the current page&#x2019;s context</li>
       <li>After all transactions are done: in the Network tab, <strong>right-click any row &rarr; "Save all as HAR with content"</strong></li>
       <li>Drop the saved <code>.har</code> file in the area above &#x2014; both scripts are generated automatically</li>
     </ol>
@@ -509,24 +510,6 @@ https://github.com/nodeca/pako/blob/main/LICENSE
     <div class="tip">&#x1F4A1; <strong>Forgot markers?</strong> Use <strong>Select Mode</strong> after loading the HAR to manually group requests into transactions.</div>
     <div class="warn">&#x26A0; Keep the Developer Tools (F12) open for the entire recording session. Closing it loses all recorded data.</div>
   </div>
-
-  <!-- CLASSIC BOOKMARKLETS FALLBACK -->
-  <details style="margin-bottom:10px">
-    <summary style="cursor:pointer;font-size:12.5px;color:var(--muted);padding:8px 12px;background:var(--surface);border:1px solid var(--border);border-radius:6px;user-select:none">
-      &#x1F516; Alternative: Classic Start/End Bookmarklets (two separate bookmarks, prompt-style)
-    </summary>
-    <div class="instr" style="border-top:0;border-radius:0 0 10px 10px;margin-top:0">
-      <p style="font-size:12.5px;color:var(--muted);margin-bottom:10px">If you prefer the original two-bookmarklet approach, drag both buttons below to your Bookmarks Bar.</p>
-      <div class="bm-links" style="margin-bottom:0">
-        <a class="bm-drag bm-start"
-           href="javascript:(function(){try{var last=localStorage.getItem('_vugen_txn')||'T01_Name';var n=prompt('Transaction name (e.g. T01_Login):',last);if(n){n=n.trim().replace(/[\s-]+/g,'_');if(n){localStorage.setItem('_vugen_txn',n);new Image().src='https://START-'+n+'.invalid/';}}}catch(e){}})();"
-           onclick="alert('Drag this button to your Bookmarks Bar &#x2014; do not click it here.');return false;">&#x25B6; START Transaction</a>
-        <a class="bm-drag bm-end"
-           href="javascript:(function(){try{var last=localStorage.getItem('_vugen_txn')||'T01_Name';var n=prompt('Transaction name (e.g. T01_Name):',last);if(n){n=n.trim().replace(/[\s-]+/g,'_');if(n)new Image().src='https://END-'+n+'.invalid/';}}catch(e){}})();"
-           onclick="alert('Drag this button to your Bookmarks Bar &#x2014; do not click it here.');return false;">&#x25A0; END Transaction</a>
-      </div>
-    </div>
-  </details>
 
   <!-- FALLBACK METHOD -->
   <details style="margin-bottom:16px">
@@ -555,7 +538,7 @@ https://github.com/nodeca/pako/blob/main/LICENSE
         <li>In the Chrome/Edge address bar, navigate to <code>chrome://net-export/</code></li>
         <li>Click <strong>Start Logging to Disk</strong> &#x2014; choose a save location and click Save</li>
         <li>Open your application in a new tab (the net-export tab stays open in the background)</li>
-        <li>Use the <strong>&#x1F4CA; VuGen Recorder Bar</strong> bookmark as normal &#x2014; it captures to NetLog from any tab</li>
+        <li>Use the <strong style="color:#166534">&#x25B6; START Transaction</strong> and <strong style="color:#991b1b">&#x25A0; END Transaction</strong> bookmarks as normal &#x2014; they fire from any tab and are captured by NetLog</li>
         <li>Complete your full user journey (including any popup windows or new tabs the app opens)</li>
         <li>Switch back to the <code>chrome://net-export/</code> tab and click <strong>Stop Logging</strong></li>
         <li>Drop the saved <code>.json</code> file into this tool just as you would a <code>.har</code> file</li>
