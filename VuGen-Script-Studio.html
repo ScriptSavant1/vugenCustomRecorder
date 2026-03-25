@@ -2334,8 +2334,10 @@ function genMainJS(entries, correlations){
   }
 
   // ── initialize ────────────────────────────────────────────────────────────
+  o+='let SERVER_HOST = \'\';\n\n';
   o+='load.initialize("Initialize", async function() {\n';
   o+='    load.log("Initializing Vuser " + load.config.user.userId, load.LogLevel.debug);\n\n';
+  o+='    SERVER_HOST = load.params.ServerHost;\n\n';
   const nonGenCorrs=correlations.filter(c=>c.extractorType!=='generate');
   if(nonGenCorrs.length>0){
     o+='    // Correlated dynamic values — extracted at runtime\n';
@@ -2453,7 +2455,7 @@ function genMainJS(entries, correlations){
     o+='    // Transaction declarations\n';
     txnNames.forEach((nm,i)=>{
       const tsNum=String(i+1).padStart(2,'0');
-      const scName=`SC01_${tsNum}_${nm.replace(/^[Tt]\d+[_-]/,'')}`;
+      const scName=`SC01_${tsNum}_${nm.replace(/^[Tt]\d+[_-]/,'').toUpperCase()}`;
       o+=`    let TS${tsNum} = new load.Transaction("${scName}");\n`;
     });
     o+='    let think_time = 1;\n\n';
@@ -2693,7 +2695,7 @@ function genMainJS(entries, correlations){
       let urlEsc=escTpl(urlBaseOut);
       urlEsc=urlEsc.replace(/\x00DYNSTART_([^]+?)\x00DYNEND/g,'${load.global.$1}');
       urlEsc=urlEsc.replace(/\x00PARAM_([^]+?)\x00PARAMEND/g,'${load.params.$1}');
-      if(S.serverHost) urlEsc=urlEsc.replace('\x00SRVHOST\x00',S.serverHost.proto+'//${load.params.ServerHost}');
+      if(S.serverHost) urlEsc=urlEsc.replace('\x00SRVHOST\x00',S.serverHost.proto+'//${SERVER_HOST}');
       o+=`        url: \`${urlEsc}\`,\n`;
     } else {
       o+=`        url: "${escJs(e.url.split('?')[0])}",\n`;
@@ -2987,7 +2989,7 @@ function genActionC(entries, correlations){
     if(e.isMarker){
       const acIdx=S.txns.findIndex(t=>t.name===e.txnName);
       const acSeq=String(acIdx+1).padStart(2,'0');
-      const acSc=`SC01_${acSeq}_${e.txnName.replace(/^[Tt]\d+[_-]/,'')}`;
+      const acSc=`SC01_${acSeq}_${e.txnName.replace(/^[Tt]\d+[_-]/,'').toUpperCase()}`;
       if(e.markerType==='start'){
         o+=`\tlr_start_transaction("${acSc}");\n\n`;
       } else {

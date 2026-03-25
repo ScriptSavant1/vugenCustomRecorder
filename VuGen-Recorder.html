@@ -1482,7 +1482,7 @@ function genActionC(){
     if(e.isMarker){
       const acIdx=S.txns.findIndex(t=>t.name===e.txnName);
       const acSeq=String(acIdx+1).padStart(2,'0');
-      const acSc=`SC01_${acSeq}_${e.txnName.replace(/^[Tt]\d+[_-]/,'')}`;
+      const acSc=`SC01_${acSeq}_${e.txnName.replace(/^[Tt]\d+[_-]/,'').toUpperCase()}`;
       if(e.markerType==='start')
         o+=`\tlr_start_transaction("${acSc}");\n\n`;
       else{
@@ -1655,8 +1655,10 @@ function genMainJS(){
   const defHdrs=firstE?filtHdrs(firstE):{'accept-language':'en-US,en;q=0.9'};
 
   // -- initialize ------------------------------------------------------------
+  o+='let SERVER_HOST = \'\';\n\n';
   o+='load.initialize("Initialize", async function() {\n';
   o+='    load.log("Initializing Vuser " + load.config.user.userId, load.LogLevel.debug);\n\n';
+  o+='    SERVER_HOST = load.params.ServerHost;\n\n';
   o+='    // Initialize global variables for correlated dynamic values\n';
   o+='    // load.global.accessToken = null;\n';
   o+='    // load.global.sessionId   = null;\n\n';
@@ -1702,7 +1704,7 @@ function genMainJS(){
     o+='    // Transaction declarations\n';
     S.txns.forEach((txn,i)=>{
       const tsNum=String(i+1).padStart(2,'0');
-      const scName=`SC01_${tsNum}_${txn.name.replace(/^[Tt]\d+[_-]/,'')}`;
+      const scName=`SC01_${tsNum}_${txn.name.replace(/^[Tt]\d+[_-]/,'').toUpperCase()}`;
       o+=`    let TS${tsNum} = new load.Transaction("${scName}");\n`;
     });
     o+='    let think_time = 1;\n\n';
@@ -1768,7 +1770,7 @@ function genMainJS(){
     // URL (base) with optional ServerHost substitution
     if(S.serverHost && urlBase.startsWith(S.serverHost.prefix)){
       const path=urlBase.slice(S.serverHost.prefix.length).replace(/`/g,'\\`');
-      o+=`        url: \`${S.serverHost.proto}//\${load.params.ServerHost}${path}\`,\n`;
+      o+=`        url: \`${S.serverHost.proto}//\${SERVER_HOST}${path}\`,\n`;
     } else {
       o+=`        url: "${escJs(urlBase)}",\n`;
     }
