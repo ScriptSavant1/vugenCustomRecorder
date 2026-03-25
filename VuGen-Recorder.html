@@ -842,7 +842,9 @@ function readFile(file){
 // chrome://net-export/ produces a JSON with a top-level "constants" key that
 // contains logEventTypes and a flat "events" array.
 function isNetLog(obj){
-  return obj && obj.constants && obj.constants.logEventTypes && Array.isArray(obj.events);
+  // chrome://net-export/ always has top-level "constants" and "events" array
+  // logEventTypes may be absent in newer Chrome versions — check constants alone
+  return !!(obj && obj.constants && Array.isArray(obj.events) && !obj.log);
 }
 
 // Parse raw header string from NetLog: "HTTP/1.1 200 OK\r\nContent-Type: ..."
@@ -860,20 +862,19 @@ function parseNetLogHeaderBlock(raw){
 }
 
 function parseNetLog(netlog){
-  const evTypes=netlog.constants.logEventTypes;      // name -> number
+  const evTypes=netlog.constants.logEventTypes||{};  // name -> number
   // Build reverse map: number -> name
   const evNames={};
   for(const [name,num] of Object.entries(evTypes)) evNames[num]=name;
-
-  const srcTypes=netlog.constants.logSourceType||netlog.constants.sourceType||{};
-  // URL_REQUEST source type is typically 1
-  const URL_REQUEST_TYPE = srcTypes['URL_REQUEST']??1;
+  // Handle both old format (ev.type=number) and new Chrome format (ev.type=string)
+  const getEvName=ev=>typeof ev.type==='string'?ev.type:(evNames[ev.type]||'');
 
   // Group events by source.id
   const sources={};
   for(const ev of netlog.events){
-    const sid=ev.source&&ev.source.id;
-    if(sid===undefined) continue;
+    if(ev.source==null) continue;
+    const sid=ev.source.id;
+    if(sid==null) continue;
     if(!sources[sid]) sources[sid]={type:ev.source.type, evs:[]};
     sources[sid].evs.push(ev);
   }
@@ -884,13 +885,15 @@ function parseNetLog(netlog){
   let id=0;
 
   for(const [sid, src] of Object.entries(sources)){
-    if(src.type!==URL_REQUEST_TYPE) continue;
+    // Identify URL_REQUEST sources by the presence of URL_REQUEST_START_JOB —
+    // more robust than checking source.type numbers which change across Chrome versions
+    if(!src.evs.some(ev=>getEvName(ev)==='URL_REQUEST_START_JOB')) continue;
 
     // Collect key events from this source
     let url='', method='GET', reqHdrsRaw='', respHdrsRaw='', startTime=0;
 
     for(const ev of src.evs){
-      const name=evNames[ev.type]||'';
+      const name=getEvName(ev);
       const params=ev.params||{};
 
       // URL + method
@@ -1681,9 +1684,11 @@ function genMainJS(){
       o+=`    // Runtime Settings: Replay -> enableIntegratedAuthentication: true\n`;
     }
     const hostArg=(S.auth.type==='basic'||S.auth.type==='digest')?'"*"':`"${S.auth.hostport||'server:port'}"`;
+    const isWinAuth=S.auth.type==='kerberos'||S.auth.type==='ntlm'||S.auth.type==='negotiate';
     o+=`    load.setUserCredentials({\n`;
     o+=`        username: load.params.AuthUsername,\n`;
     o+=`        password: load.params.AuthPassword,\n`;
+    if(isWinAuth) o+=`        domain: load.params.AuthDomain,\n`;
     o+=`        host: ${hostArg}\n`;
     o+=`    });\n\n`;
   }
@@ -1708,11 +1713,11 @@ function genMainJS(){
         const txIdx=S.txns.findIndex(t=>t.name===e.txnName);
         const tsNum=String(txIdx+1).padStart(2,'0');
         currentTxn={name:e.txnName,tsNum};
-        o+=`    // -- TS${tsNum}: ${e.txnName} ${'-'.repeat(Math.max(0,50-e.txnName.length))}\n`;
         o+=`    TS${tsNum}.start();\n\n`;
       } else {
         if(currentTxn){
-          o+=`    TS${currentTxn.tsNum}.stop(load.TransactionStatus.Passed);\n\n`;
+          o+=`    TS${currentTxn.tsNum}.stop();\n`;
+          o+=`    load.sleep(1);\n\n`;
           currentTxn=null;
         }
       }
@@ -1729,22 +1734,22 @@ function genMainJS(){
     {let _j=idx+1,_fc=0; while(_j<S.entries.length&&mjAutoFollowSet.has(_j)){_fc++;_j++;} if(_fc>0) o+=`    // Note: VuGen auto-follows ${_fc} redirect(s) after this request\n`;}
 
     const rn=rqName(e.url);
-    const numStr=String(rid).padStart(2,'0');
-    const varN=`webResponse_${numStr}`;
 
-    // Only add headers that differ from defaults; skip defaults and redundant values
+    // Parse URL into base + queryString object
+    let urlBase=e.url, qsEntries=[];
+    try{const pu=new URL(e.url);urlBase=pu.origin+pu.pathname;qsEntries=[...pu.searchParams.entries()];}catch{}
+
+    // Only add headers that differ from defaults
     const allHdrs=filtHdrs(e);
     const extraHdrs={};
     for(const [k,v] of Object.entries(allHdrs)){
       const kl=k.toLowerCase();
-      if(kl==='accept'&&v==='*/*') continue;  // DevWeb default — never needed
-      if(defHdrs[k]!==undefined&&defHdrs[k]===v) continue;  // same as global default — skip
-      // Authorization: handled by load.setUserCredentials for non-Bearer auth
+      if(kl==='accept'&&v==='*/*') continue;
+      if(defHdrs[k]!==undefined&&defHdrs[k]===v) continue;
       if(kl==='authorization'&&S.auth&&['kerberos','ntlm','negotiate','basic','digest'].includes(S.auth.type)) continue;
       extraHdrs[k]=v;
     }
 
-    o+=`    // ${rn}\n`;
     // Multipart body detection
     const mjCt=(e.hdrsMap&&e.hdrsMap['content-type']||'').split(';')[0].trim();
     if(mjCt==='multipart/form-data'){
@@ -1752,18 +1757,25 @@ function genMainJS(){
       o+=`    // const formData = new load.FormData();\n`;
       o+=`    // formData.append('field', value); // or readFile() for binary\n`;
     }
-    o+=`    const ${varN} = await new load.WebRequest({\n`;
-    o+=`        "id": ${rid},\n`;
-    // ServerHost URL substitution
-    if(S.serverHost && e.url.startsWith(S.serverHost.prefix)){
-      const path=e.url.slice(S.serverHost.prefix.length).replace(/\\/g,'\\\\').replace(/`/g,'\\`');
-      o+=`        "url": \`${S.serverHost.proto}//\${load.params.ServerHost}${path}\`,\n`;
+    o+=`    // ${rn}\n`;
+    o+=`    await new load.WebRequest({\n`;
+    o+=`        id: ${rid},\n`;
+    // URL (base) with optional ServerHost substitution
+    if(S.serverHost && urlBase.startsWith(S.serverHost.prefix)){
+      const path=urlBase.slice(S.serverHost.prefix.length).replace(/`/g,'\\`');
+      o+=`        url: \`${S.serverHost.proto}//\${load.params.ServerHost}${path}\`,\n`;
     } else {
-      o+=`        "url": "${escJs(e.url)}",\n`;
+      o+=`        url: "${escJs(urlBase)}",\n`;
     }
-    o+=`        "method": "${e.method}",\n`;
+    // queryString object (only when URL had query params)
+    if(qsEntries.length>0){
+      o+=`        queryString: {\n`;
+      for(const [k,v] of qsEntries) o+=`            "${escJs(k)}": "${escJs(v)}",\n`;
+      o+=`        },\n`;
+    }
+    o+=`        method: "${e.method}",\n`;
     if(Object.keys(extraHdrs).length>0){
-      o+=`        "headers": {\n`;
+      o+=`        headers: {\n`;
       for(const [k,v] of Object.entries(extraHdrs))
         o+=`            "${escJs(k)}": "${escJs(v)}",\n`;
       o+=`        },\n`;
@@ -1771,25 +1783,22 @@ function genMainJS(){
     if(e.body&&e.body.text){
       const bText=e.body.text;
       const bMime=(e.body.mimeType||'').split(';')[0].trim();
-      // Large .NET hidden field warning
       if(bText.length>1500&&bMime==='application/x-www-form-urlencoded'&&/__VIEWSTATE|__EVENTVALIDATION|__RequestVerificationToken/.test(bText)){
         o+=`        // TODO: Large .NET hidden field(s) in body. Use Script Studio with two HARs to auto-correlate.\n`;
       }
-      o+=`        "body": \`${escTpl(bText)}\`,\n`;
+      if(bMime==='application/json'||bMime==='text/json'){
+        try{
+          const parsed=JSON.parse(bText);
+          const lines=JSON.stringify(parsed,null,4).split('\n');
+          o+=`        body: ${lines.map((l,i)=>i===0?l:'        '+l).join('\n')},\n`;
+        }catch{ o+=`        body: \`${escTpl(bText)}\`,\n`; }
+      } else {
+        o+=`        body: \`${escTpl(bText)}\`,\n`;
+      }
     } else if(e._fromNetLog && e.method!=='GET' && e.method!=='HEAD'){
-      o+=`        // TODO: POST body not available in NetLog - add "body" property with your recorded request body\n`;
+      o+=`        // TODO: POST body not available in NetLog - add body property with your recorded request body\n`;
     }
-    o+=`    }).send();\n`;
-    o+=`    load.log(\`${rn} - Status: \${${varN}.status}\`, load.LogLevel.info);\n\n`;
-
-    if(currentTxn){
-      o+=`    if(${varN}.status<200||${varN}.status>=400){\n`;
-      o+=`        load.log(\`${rn} failed with status \${${varN}.status}\`, load.LogLevel.error);\n`;
-      o+=`        TS${currentTxn.tsNum}.stop(load.TransactionStatus.Failed);\n`;
-      o+=`        return false;\n`;
-      o+=`    }\n`;
-    }
-    o+=`    load.sleep(1);\n\n`;
+    o+=`    }).send();\n\n`;
     rid++;
   }
 

@@ -807,7 +807,9 @@ function parseHar(har){
 // ─── NetLog detection & parsing ────────────────────────────────────────────
 // chrome://net-export/ produces JSON with top-level "constants" + flat "events" array.
 function isNetLog(obj){
-  return !!(obj && obj.constants && obj.constants.logEventTypes && Array.isArray(obj.events));
+  // chrome://net-export/ always has top-level "constants" and "events" array
+  // logEventTypes may be absent in newer Chrome versions — check constants alone
+  return !!(obj && obj.constants && Array.isArray(obj.events) && !obj.log);
 }
 
 function parseNetLogHeaderBlock(raw){
@@ -825,17 +827,17 @@ function parseNetLogHeaderBlock(raw){
 // Returns entries in Studio shape (same as parseHar), with respBody='' and _fromNetLog=true.
 // Response bodies are unavailable in NetLog — correlation engine will use pattern mode only.
 function parseNetLog(netlog){
-  const evTypes=netlog.constants.logEventTypes;  // name → number
+  const evTypes=netlog.constants.logEventTypes||{};  // name → number
   const evNames={};
   for(const [name,num] of Object.entries(evTypes)) evNames[num]=name;
-
-  const srcTypes=netlog.constants.logSourceType||netlog.constants.sourceType||{};
-  const URL_REQUEST_TYPE=srcTypes['URL_REQUEST']??1;
+  // Handle both old format (ev.type=number) and new Chrome format (ev.type=string)
+  const getEvName=ev=>typeof ev.type==='string'?ev.type:(evNames[ev.type]||'');
 
   const sources={};
   for(const ev of netlog.events){
-    const sid=ev.source&&ev.source.id;
-    if(sid===undefined) continue;
+    if(ev.source==null) continue;
+    const sid=ev.source.id;
+    if(sid==null) continue;
     if(!sources[sid]) sources[sid]={type:ev.source.type, evs:[]};
     sources[sid].evs.push(ev);
   }
@@ -844,12 +846,14 @@ function parseNetLog(netlog){
   const entries=[];
 
   for(const src of Object.values(sources)){
-    if(src.type!==URL_REQUEST_TYPE) continue;
+    // Identify URL_REQUEST sources by the presence of URL_REQUEST_START_JOB —
+    // more robust than checking source.type numbers which change across Chrome versions
+    if(!src.evs.some(ev=>getEvName(ev)==='URL_REQUEST_START_JOB')) continue;
 
     let url='', method='GET', reqHdrsRaw='', respHdrsRaw='', startTime=0;
 
     for(const ev of src.evs){
-      const name=evNames[ev.type]||'';
+      const name=getEvName(ev);
       const params=ev.params||{};
 
       if(name==='URL_REQUEST_START_JOB'){
@@ -2406,9 +2410,11 @@ function genMainJS(entries, correlations){
       o+=`    // Runtime Settings: Replay -> enableIntegratedAuthentication: true\n`;
     }
     const hostArg=(S.auth.type==='basic'||S.auth.type==='digest')?'"*"':`"${S.auth.hostport||'server:port'}"`;
+    const isWinAuth=S.auth.type==='kerberos'||S.auth.type==='ntlm'||S.auth.type==='negotiate';
     o+=`    load.setUserCredentials({\n`;
     o+=`        username: load.params.AuthUsername,\n`;
     o+=`        password: load.params.AuthPassword,\n`;
+    if(isWinAuth) o+=`        domain: load.params.AuthDomain,\n`;
     o+=`        host: ${hostArg}\n`;
     o+=`    });\n\n`;
   }
@@ -2452,13 +2458,8 @@ function genMainJS(entries, correlations){
     o+='    let TS01 = new load.Transaction("T01_Transaction");\n';
   }
 
-  // Exception handling — try/catch wraps all transaction work
-  o+='    let _activeTxn = null;\n';
-  o+='    try {\n\n';
-
   if(!hasMarkers){
-    o+='    // ── TS01: T01_Transaction ────────────────────────────────────────\n';
-    o+='    _activeTxn = TS01; TS01.start();\n\n';
+    o+='    TS01.start();\n\n';
   }
 
   let currentTxn=null; // {name, tsNum}
@@ -2472,12 +2473,11 @@ function genMainJS(entries, correlations){
         const ti=txnNames.indexOf(e.txnName);
         const tsNum=String(ti+1).padStart(2,'0');
         currentTxn={name:e.txnName,tsNum};
-        o+=`    // ── TS${tsNum}: ${e.txnName} ${'─'.repeat(Math.max(0,50-e.txnName.length))}\n`;
-        o+=`    _activeTxn = TS${tsNum}; TS${tsNum}.start();\n\n`;
+        o+=`    TS${tsNum}.start();\n\n`;
       } else {
         if(currentTxn){
-          o+=`    TS${currentTxn.tsNum}.stop(load.TransactionStatus.Passed);\n`;
-          o+=`    _activeTxn = null;\n\n`;
+          o+=`    TS${currentTxn.tsNum}.stop();\n`;
+          o+=`    load.sleep(1);\n\n`;
           currentTxn=null;
         }
       }
@@ -2663,26 +2663,64 @@ function genMainJS(entries, correlations){
       urlHasDynamic=true;
     }
 
+    // Split urlOut into base URL + query string parts
+    const qMarkIdx=urlOut.indexOf('?');
+    let urlBaseOut=urlOut, urlQsOut='';
+    if(qMarkIdx>=0){ urlBaseOut=urlOut.slice(0,qMarkIdx); urlQsOut=urlOut.slice(qMarkIdx+1); }
+    const urlBaseDyn=urlBaseOut.includes('\x00');
+
+    const srcCorrsForReq=(corrSourcesRemap.get(idx)||[]).filter(c=>c.extractorType!=='generate');
     o+=`    // ${rn}\n`;
-    o+=`    const ${varN} = await new load.WebRequest({\n`;
-    o+=`        "id": ${rid},\n`;
-    if(urlHasDynamic){
-      let urlEsc=escTpl(urlOut);
+    const bodyMime=(e.body&&e.body.mimeType||'').split(';')[0].trim();
+    if(bodyMime==='multipart/form-data'){
+      o+=`    // TODO: Multipart body detected. For file uploads in DevWeb:\n`;
+      o+=`    // const formData = new load.FormData();\n`;
+      o+=`    // formData.append('fieldName', load.utils.readFile('filename.pdf'), 'filename.pdf');\n`;
+      o+=`    // Then use: body: formData  (remove the body property below and replace)\n`;
+    }
+    if(srcCorrsForReq.length>0){
+      o+=`    const ${varN} = await new load.WebRequest({\n`;
+    } else {
+      o+=`    await new load.WebRequest({\n`;
+    }
+    o+=`        id: ${rid},\n`;
+    // Base URL
+    if(urlBaseDyn){
+      let urlEsc=escTpl(urlBaseOut);
       urlEsc=urlEsc.replace(/\x00DYNSTART_([^]+?)\x00DYNEND/g,'${load.global.$1}');
       urlEsc=urlEsc.replace(/\x00PARAM_([^]+?)\x00PARAMEND/g,'${load.params.$1}');
       if(S.serverHost) urlEsc=urlEsc.replace('\x00SRVHOST\x00',S.serverHost.proto+'//${load.params.ServerHost}');
-      o+=`        "url": \`${urlEsc}\`,\n`;
+      o+=`        url: \`${urlEsc}\`,\n`;
     } else {
-      o+=`        "url": "${escJs(e.url)}",\n`;
+      o+=`        url: "${escJs(e.url.split('?')[0])}",\n`;
     }
-    o+=`        "method": "${e.method}",\n`;
+    // queryString object
+    if(urlQsOut){
+      o+=`        queryString: {\n`;
+      for(const pair of urlQsOut.split('&')){
+        const eqI=pair.indexOf('=');
+        const rawK=eqI>=0?pair.slice(0,eqI):pair;
+        const rawV=eqI>=0?pair.slice(eqI+1):'';
+        let key; try{key=decodeURIComponent(rawK);}catch{key=rawK;}
+        if(rawV.includes('\x00')){
+          let vx=escTpl(rawV);
+          vx=vx.replace(/\x00DYNSTART_([^]+?)\x00DYNEND/g,'${load.global.$1}');
+          vx=vx.replace(/\x00PARAM_([^]+?)\x00PARAMEND/g,'${load.params.$1}');
+          o+=`            "${escJs(key)}": \`${vx}\`,\n`;
+        } else {
+          let val; try{val=decodeURIComponent(rawV.replace(/\+/g,' '));}catch{val=rawV;}
+          o+=`            "${escJs(key)}": "${escJs(val)}",\n`;
+        }
+      }
+      o+=`        },\n`;
+    }
+    o+=`        method: "${e.method}",\n`;
     if(Object.keys(extraHdrs).length>0){
-      o+=`        "headers": {\n`;
+      o+=`        headers: {\n`;
       for(const [k,h] of Object.entries(extraHdrs)){
         if(h.dynamic) o+=`            "${escJs(k)}": \`${h.expr}\`,\n`;
         else if(h.todo){
-          // Dynamic header — emit active entry with global reference. Tester must add the extractor.
-          o+=`            // TODO: Add extractor for "${k}" on the response that sets it (e.g. Set-Cookie or response body).\n`;
+          o+=`            // TODO: Add extractor for "${k}" on the response that sets it.\n`;
           o+=`            "${escJs(k)}": \`\${load.global.${h.todo}}\`,\n`;
         }
         else o+=`            "${escJs(k)}": "${escJs(h.value)}",\n`;
@@ -2691,22 +2729,13 @@ function genMainJS(entries, correlations){
     }
     // NetLog source: body was not captured — emit TODO comment
     if(e._fromNetLog && bodyText===null && e.method!=='GET' && e.method!=='HEAD'){
-      o+=`        // TODO: POST body not available in NetLog — add "body" property with your recorded request body\n`;
+      o+=`        // TODO: POST body not available in NetLog — add body property with your recorded request body\n`;
     }
     if(bodyText!==null){
-      const bodyMime=(e.body&&e.body.mimeType||'').split(';')[0].trim();
-      // Multipart body detection
-      if(bodyMime==='multipart/form-data'){
-        o+=`        // TODO: Multipart body detected. For file uploads in DevWeb:\n`;
-        o+=`        // const formData = new load.FormData();\n`;
-        o+=`        // formData.append('fieldName', load.utils.readFile('filename.pdf'), 'filename.pdf');\n`;
-        o+=`        // Then use: "body": formData  (remove the body property below and replace)\n`;
-      }
       const isFormBody=bodyMime==='application/x-www-form-urlencoded'&&bodyText.indexOf('=')>=0;
       if(isFormBody){
-        // Render as object { "key": "value" } — matches VuGen DevWeb output format, easier to read
         const pairs=bodyText.split('&');
-        o+=`        "body": {\n`;
+        o+=`        body: {\n`;
         for(const pair of pairs){
           const eq=pair.indexOf('=');
           const rawK=eq>=0?pair.substring(0,eq):pair;
@@ -2714,66 +2743,57 @@ function genMainJS(entries, correlations){
           let k=rawK; try{k=decodeURIComponent(rawK.replace(/\+/g,' '));}catch(ex){}
           const hasDyn=rawV.includes('\x00DYNSTART_')||rawV.includes('\x00PARAM_');
           if(hasDyn){
-            // Template literal for dynamic expressions
             let vExpr=escTpl(rawV);
             vExpr=vExpr.replace(/\x00DYNSTART_([^]+?)\x00DYNEND/g,'${load.global.$1}');
             vExpr=vExpr.replace(/\x00PARAM_([^]+?)\x00PARAMEND/g,'${load.params.$1}');
             o+=`            "${escJs(k)}": \`${vExpr}\`,\n`;
           } else {
-            // Plain value — URL-decode for readability (SDK sends as-is in object body)
             let v=rawV; try{v=decodeURIComponent(rawV.replace(/\+/g,' '));}catch(ex){}
             o+=`            "${escJs(k)}": "${escJs(v)}",\n`;
           }
         }
         o+=`        },\n`;
       } else if(bodyHasDynamic){
-        // JSON or other body with dynamic expressions — template literal
         let esc1=escTpl(bodyText);
         esc1=esc1.replace(/\x00DYNSTART_([^]+?)\x00DYNEND/g,'${load.global.$1}');
         esc1=esc1.replace(/\x00PARAM_([^]+?)\x00PARAMEND/g,'${load.params.$1}');
-        o+=`        "body": \`${esc1}\`,\n`;
+        o+=`        body: \`${esc1}\`,\n`;
+      } else if(bodyMime==='application/json'||bodyMime==='text/json'){
+        // Pretty-print JSON body as formatted JS object literal
+        try{
+          const parsed=JSON.parse(bodyText);
+          const lines=JSON.stringify(parsed,null,4).split('\n');
+          o+=`        body: ${lines.map((l,i)=>i===0?l:'        '+l).join('\n')},\n`;
+        }catch{ o+=`        body: \`${escTpl(bodyText)}\`,\n`; }
       } else {
-        o+=`        "body": \`${escTpl(bodyText)}\`,\n`;
+        o+=`        body: \`${escTpl(bodyText)}\`,\n`;
       }
     }
-    const srcCorrsForReq=(corrSourcesRemap.get(idx)||[]).filter(c=>c.extractorType!=='generate');
     if(srcCorrsForReq.length>0){
-      o+=`        "returnBody": true,\n`;
-      o+=`        "extractors": [\n`;
+      o+=`        returnBody: true,\n`;
+      o+=`        extractors: [\n`;
       for(const c of srcCorrsForReq){
         const extCode=devwebExtractorCode(c);
         if(extCode) o+=extCode+',\n';
       }
       o+=`        ],\n`;
     }
-    o+=`    }).send();\n`;
-    o+=`    load.log(\`${rn} - Status: \${${varN}.status}\`, load.LogLevel.info);\n`;
-
+    o+=`    }).send();\n\n`;
     // Store extracted values
     if(srcCorrsForReq.length>0){
       for(const c of srcCorrsForReq)
         o+=`    load.global.${c.name} = ${varN}.extractors.${c.name};\n`;
+      o+='\n';
     }
-
-    o+=`\n    if(${varN}.status<200||${varN}.status>=400){\n`;
-    o+=`        throw new Error(\`${rn} returned HTTP \${${varN}.status}\`);\n`;
-    o+=`    }\n`;
-    o+=`    load.sleep(1);\n\n`;
     rid++;
   }
 
-  // Close any transaction still open when no markers are used
+  // Close transaction if no markers
   if(!hasMarkers){
-    o+='    TS01.stop(load.TransactionStatus.Passed);\n';
-    o+='    _activeTxn = null;\n\n';
+    o+='    TS01.stop();\n';
+    o+='    load.sleep(1);\n\n';
   }
-  o+='    load.log("\u2713 Action complete", load.LogLevel.info);\n\n';
-  // Close try block, add catch
-  o+='    } catch(e) {\n';
-  o+='        load.log(`Action failed: ${e.message}`, load.LogLevel.error);\n';
-  o+='        if(_activeTxn) _activeTxn.stop(load.TransactionStatus.Failed);\n';
-  o+='        load.exit(load.ExitType.iteration, e.message);\n';
-  o+='    }\n';
+  o+='    load.log("\u2713 Action complete", load.LogLevel.info);\n';
   o+='});\n\n';
 
   // ── finalize ──────────────────────────────────────────────────────────────
