@@ -2335,7 +2335,7 @@ function genMainJS(entries, correlations){
 
   // ── initialize ────────────────────────────────────────────────────────────
   o+='load.initialize("Initialize", async function() {\n';
-  o+='    load.log("\uD83D\uDE80 Initializing Vuser " + load.config.user.userId, load.LogLevel.info);\n\n';
+  o+='    load.log("Initializing Vuser " + load.config.user.userId, load.LogLevel.debug);\n\n';
   const nonGenCorrs=correlations.filter(c=>c.extractorType!=='generate');
   if(nonGenCorrs.length>0){
     o+='    // Correlated dynamic values — extracted at runtime\n';
@@ -2368,14 +2368,15 @@ function genMainJS(entries, correlations){
       o+='\n';
     }
   }
-  o+='    load.log("\u2713 Initialization complete", load.LogLevel.info);\n';
+  o+='    load.log("Initialization complete", load.LogLevel.debug);\n';
   o+='});\n\n';
 
   // ── action ────────────────────────────────────────────────────────────────
   o+='load.action("Action", async function() {\n';
-  o+='    load.log("▶️  Starting action - Iteration " + load.config.runtime.iteration, load.LogLevel.info);\n\n';
+  o+='    load.log("Starting action - Iteration " + load.config.runtime.iteration, load.LogLevel.debug);\n\n';
   o+='    // Default request options\n';
   o+='    load.WebRequest.defaults.returnBody = false;\n';
+  o+='    load.WebRequest.defaults.downloadHtmlStaticResources = true;\n';
   o+='    load.WebRequest.defaults.headers = {\n';
   for(const [k,v] of Object.entries(defHdrs)){
     // Skip headers that are dynamic (correlated or unresolved candidate) — handled per-request
@@ -2451,11 +2452,14 @@ function genMainJS(entries, correlations){
   if(hasMarkers){
     o+='    // Transaction declarations\n';
     txnNames.forEach((nm,i)=>{
-      o+=`    let TS${String(i+1).padStart(2,'0')} = new load.Transaction("${nm}");\n`;
+      const tsNum=String(i+1).padStart(2,'0');
+      const scName=`SC01_${tsNum}_${nm.replace(/^[Tt]\d+[_-]/,'')}`;
+      o+=`    let TS${tsNum} = new load.Transaction("${scName}");\n`;
     });
-    o+='\n';
+    o+='    let think_time = 1;\n\n';
   } else {
-    o+='    let TS01 = new load.Transaction("T01_Transaction");\n';
+    o+='    let TS01 = new load.Transaction("SC01_01_Transaction");\n';
+    o+='    let think_time = 1;\n\n';
   }
 
   if(!hasMarkers){
@@ -2477,7 +2481,7 @@ function genMainJS(entries, correlations){
       } else {
         if(currentTxn){
           o+=`    TS${currentTxn.tsNum}.stop();\n`;
-          o+=`    load.sleep(1);\n\n`;
+          o+=`    load.sleep(think_time);\n\n`;
           currentTxn=null;
         }
       }
@@ -2791,16 +2795,16 @@ function genMainJS(entries, correlations){
   // Close transaction if no markers
   if(!hasMarkers){
     o+='    TS01.stop();\n';
-    o+='    load.sleep(1);\n\n';
+    o+='    load.sleep(think_time);\n\n';
   }
-  o+='    load.log("\u2713 Action complete", load.LogLevel.info);\n';
+  o+='    load.log("Action complete", load.LogLevel.debug);\n';
   o+='});\n\n';
 
   // ── finalize ──────────────────────────────────────────────────────────────
   o+='load.finalize("Finalize", async function() {\n';
-  o+='    load.log("\uD83C\uDFC1 Finalizing Vuser " + load.config.user.userId, load.LogLevel.info);\n\n';
+  o+='    load.log("Finalizing Vuser " + load.config.user.userId, load.LogLevel.debug);\n\n';
   o+='    // Cleanup code here if needed\n\n';
-  o+='    load.log("\u2713 Finalization complete", load.LogLevel.info);\n';
+  o+='    load.log("Finalization complete", load.LogLevel.debug);\n';
   o+='});\n';
   return o;
 }
@@ -2974,17 +2978,20 @@ function genActionC(entries, correlations){
   const hasMarkers=entries.some(e=>e.isMarker);
 
   // Fallback single transaction when no markers present
-  if(!hasMarkers) o+='\tlr_start_transaction("T01_Transaction");\n\n';
+  if(!hasMarkers) o+='\tlr_start_transaction("SC01_01_Transaction");\n\n';
 
   for(let idx=0;idx<entries.length;idx++){
     const e=entries[idx];
 
     // Handle transaction markers
     if(e.isMarker){
+      const acIdx=S.txns.findIndex(t=>t.name===e.txnName);
+      const acSeq=String(acIdx+1).padStart(2,'0');
+      const acSc=`SC01_${acSeq}_${e.txnName.replace(/^[Tt]\d+[_-]/,'')}`;
       if(e.markerType==='start'){
-        o+=`\tlr_start_transaction("${e.txnName}");\n\n`;
+        o+=`\tlr_start_transaction("${acSc}");\n\n`;
       } else {
-        o+=`\tlr_end_transaction("${e.txnName}", LR_AUTO);\n\n`;
+        o+=`\tlr_end_transaction("${acSc}", LR_AUTO);\n\n`;
         o+=`\tlr_think_time(3);\n\n`;
       }
       continue;
@@ -3277,7 +3284,7 @@ function genActionC(entries, correlations){
     }
   }
 
-  if(!hasMarkers) o+='\tlr_end_transaction("T01_Transaction", LR_AUTO);\n\n';
+  if(!hasMarkers) o+='\tlr_end_transaction("SC01_01_Transaction", LR_AUTO);\n\n';
   o+='\treturn 0;\n}\n';
   return o;
 }

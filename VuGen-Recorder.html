@@ -1480,10 +1480,13 @@ function genActionC(){
   for(let idx=0;idx<S.entries.length;idx++){
     const e=S.entries[idx];
     if(e.isMarker){
+      const acIdx=S.txns.findIndex(t=>t.name===e.txnName);
+      const acSeq=String(acIdx+1).padStart(2,'0');
+      const acSc=`SC01_${acSeq}_${e.txnName.replace(/^[Tt]\d+[_-]/,'')}`;
       if(e.markerType==='start')
-        o+=`\tlr_start_transaction("${e.txnName}");\n\n`;
+        o+=`\tlr_start_transaction("${acSc}");\n\n`;
       else{
-        o+=`\tlr_end_transaction("${e.txnName}", LR_AUTO);\n\n`;
+        o+=`\tlr_end_transaction("${acSc}", LR_AUTO);\n\n`;
         o+=`\tlr_think_time(3);\n\n`;
       }
       continue;
@@ -1653,20 +1656,21 @@ function genMainJS(){
 
   // -- initialize ------------------------------------------------------------
   o+='load.initialize("Initialize", async function() {\n';
-  o+='    load.log("\uD83D\uDE80 Initializing Vuser " + load.config.user.userId, load.LogLevel.info);\n\n';
+  o+='    load.log("Initializing Vuser " + load.config.user.userId, load.LogLevel.debug);\n\n';
   o+='    // Initialize global variables for correlated dynamic values\n';
   o+='    // load.global.accessToken = null;\n';
   o+='    // load.global.sessionId   = null;\n\n';
-  o+='    load.log("\u2713 Initialization complete", load.LogLevel.info);\n';
+  o+='    load.log("Initialization complete", load.LogLevel.debug);\n';
   o+='});\n\n';
 
   // -- action ----------------------------------------------------------------
   o+='load.action("Action", async function() {\n';
-  o+='    load.log("> Starting action - Iteration " + load.config.runtime.iteration, load.LogLevel.info);\n\n';
+  o+='    load.log("Starting action - Iteration " + load.config.runtime.iteration, load.LogLevel.debug);\n\n';
 
   // Default request options
   o+='    // Set default request options (applies to all requests)\n';
   o+='    load.WebRequest.defaults.returnBody = false;\n';
+  o+='    load.WebRequest.defaults.downloadHtmlStaticResources = true;\n';
   o+='    load.WebRequest.defaults.headers = {\n';
   for(const [k,v] of Object.entries(defHdrs))
     o+=`        "${escJs(k)}": "${escJs(v)}",\n`;
@@ -1698,9 +1702,10 @@ function genMainJS(){
     o+='    // Transaction declarations\n';
     S.txns.forEach((txn,i)=>{
       const tsNum=String(i+1).padStart(2,'0');
-      o+=`    let TS${tsNum} = new load.Transaction("${txn.name}");\n`;
+      const scName=`SC01_${tsNum}_${txn.name.replace(/^[Tt]\d+[_-]/,'')}`;
+      o+=`    let TS${tsNum} = new load.Transaction("${scName}");\n`;
     });
-    o+='\n';
+    o+='    let think_time = 1;\n\n';
   }
 
   // Process entries  -  all requests in one action, transactions started/stopped inline
@@ -1717,7 +1722,7 @@ function genMainJS(){
       } else {
         if(currentTxn){
           o+=`    TS${currentTxn.tsNum}.stop();\n`;
-          o+=`    load.sleep(1);\n\n`;
+          o+=`    load.sleep(think_time);\n\n`;
           currentTxn=null;
         }
       }
@@ -1802,14 +1807,14 @@ function genMainJS(){
     rid++;
   }
 
-  o+='    load.log("\u2713 Action complete", load.LogLevel.info);\n';
+  o+='    load.log("Action complete", load.LogLevel.debug);\n';
   o+='});\n\n';
 
   // -- finalize --------------------------------------------------------------
   o+='load.finalize("Finalize", async function() {\n';
-  o+='    load.log("\uD83C\uDFC1 Finalizing Vuser " + load.config.user.userId, load.LogLevel.info);\n\n';
+  o+='    load.log("Finalizing Vuser " + load.config.user.userId, load.LogLevel.debug);\n\n';
   o+='    // Cleanup code here if needed\n\n';
-  o+='    load.log("\u2713 Finalization complete", load.LogLevel.info);\n';
+  o+='    load.log("Finalization complete", load.LogLevel.debug);\n';
   o+='});\n';
   return o;
 }
