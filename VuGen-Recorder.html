@@ -1655,10 +1655,10 @@ function genMainJS(){
   const defHdrs=firstE?filtHdrs(firstE):{'accept-language':'en-US,en;q=0.9'};
 
   // -- initialize ------------------------------------------------------------
-  o+='let SERVER_HOST = \'\';\n\n';
+  const _shHost=S.serverHost?(S.serverHost.proto+'//'+S.serverHost.host):'';
+  o+=`let SERVER_HOST = '${_shHost}';\n\n`;
   o+='load.initialize("Initialize", async function() {\n';
   o+='    load.log("Initializing Vuser " + load.config.user.userId, load.LogLevel.debug);\n\n';
-  o+='    SERVER_HOST = load.params.ServerHost;\n\n';
   o+='    // Initialize global variables for correlated dynamic values\n';
   o+='    // load.global.accessToken = null;\n';
   o+='    // load.global.sessionId   = null;\n\n';
@@ -5445,21 +5445,7 @@ async function dlZip(format){
     zip.file('Bookmarks.xml',  '<?xml version="1.0" encoding="utf-8"?><Bookmarks />');
     zip.file('Breakpoints.xml','<BreakpointsRoot Version="1" />');
     zip.file('UserTasks.xml',  '<?xml version="1.0" encoding="utf-8"?>\n<App Name="Virtual User Generator">\n  <Tasks />\n</App>');
-    if(S.serverHost){
-      // ServerHost parameter — change collection_data.csv value to switch environments
-      zip.file('parameters.yml',
-        'parameters:\n'+
-        '  - name: ServerHost\n'+
-        '    type: csv\n'+
-        '    fileName: collection_data.csv\n'+
-        '    columnName: ServerHost\n'+
-        '    nextValue: iteration\n'+
-        '    nextRow: sequential\n'+
-        '    onEnd: loop\n');
-      zip.file('collection_data.csv', 'ServerHost\n'+S.serverHost.host+'\n');
-    } else {
-      zip.file('parameters.yml', 'parameters: []\n');
-    }
+    zip.file('parameters.yml', 'parameters: []\n');
     zip.file('DevWebSdk.d.ts', DEVWEB_SDK_DTS);
     const blob=await zip.generateAsync({type:'blob'});
     const a=document.createElement('a');

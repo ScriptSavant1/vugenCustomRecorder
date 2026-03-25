@@ -2334,10 +2334,10 @@ function genMainJS(entries, correlations){
   }
 
   // ── initialize ────────────────────────────────────────────────────────────
-  o+='let SERVER_HOST = \'\';\n\n';
+  const _shHostMj=S.serverHost?(S.serverHost.proto+'//'+S.serverHost.host):'';
+  o+=`let SERVER_HOST = '${_shHostMj}';\n\n`;
   o+='load.initialize("Initialize", async function() {\n';
   o+='    load.log("Initializing Vuser " + load.config.user.userId, load.LogLevel.debug);\n\n';
-  o+='    SERVER_HOST = load.params.ServerHost;\n\n';
   const nonGenCorrs=correlations.filter(c=>c.extractorType!=='generate');
   if(nonGenCorrs.length>0){
     o+='    // Correlated dynamic values — extracted at runtime\n';
@@ -7107,11 +7107,8 @@ async function analyze(){
         );
       }
     }
-    // ServerHost detection — parameterize primary hostname for environment portability
+    // ServerHost detection — used to build SERVER_HOST variable in generated scripts
     S.serverHost=detectServerHost(S.entries1.filter(e=>!e.filtered&&!e.isMarker));
-    if(S.serverHost&&!S.params.some(p=>p.csvKey==='ServerHost')){
-      S.params.unshift({name:'ServerHost',csvKey:'ServerHost',value:S.serverHost.host,usages:[]});
-    }
 
     // SSO / OAuth redirect chain detection
     // Patterns cover: PingFederate (/as/authorization), OAuth2, OIDC, SAML, ADFS, Okta, Keycloak,
