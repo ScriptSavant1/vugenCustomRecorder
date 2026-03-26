@@ -2771,10 +2771,12 @@ function genMainJS(entries, correlations){
       }
     }
 
-    // ServerHost URL substitution (applied before escaping)
-    if(S.serverHost&&urlOut.startsWith(S.serverHost.prefix)){
-      urlOut='\x00SRVHOST\x00'+urlOut.slice(S.serverHost.prefix.length);
-      urlHasDynamic=true;
+    // ServerHost URL substitution — apply all known host variables (SERVER_HOST, SERVER_HOST1, …)
+    for(const[_uh,_uv] of Object.entries(mjHostVarMap).sort((a,b)=>b[0].length-a[0].length)){
+      if(!_uh) continue;
+      const _ure=new RegExp('^(https?://)'+_uh.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')+'(:[0-9]+)?(?=[/?#]|$)');
+      const _um=urlOut.match(_ure);
+      if(_um){ urlOut=_um[1]+'\x00SRVHOST_'+_uv+'\x00'+(_um[2]||'')+urlOut.slice(_um[0].length); urlHasDynamic=true; break; }
     }
 
     // Split urlOut into base URL + query string parts
@@ -2803,10 +2805,10 @@ function genMainJS(entries, correlations){
       let urlEsc=escTpl(urlBaseOut);
       urlEsc=urlEsc.replace(/\x00DYNSTART_([^]+?)\x00DYNEND/g,'${load.global.$1}');
       urlEsc=urlEsc.replace(/\x00PARAM_([^]+?)\x00PARAMEND/g,'${load.params.$1}');
-      if(S.serverHost) urlEsc=urlEsc.replace('\x00SRVHOST\x00',S.serverHost.proto+'//${SERVER_HOST}');
+      urlEsc=urlEsc.replace(/\x00SRVHOST_([^\x00]+)\x00/g,'${$1}');
       o+=`        url: \`${urlEsc}\`,\n`;
     } else {
-      o+=`        url: "${escJs(e.url.split('?')[0])}",\n`;
+      o+=`        url: ${subHdrValMj(e.url.split('?')[0], mjHostVarMap)},\n`;
     }
     // queryString object
     if(urlQsOut){
@@ -3190,11 +3192,9 @@ function genActionC(entries, correlations){
         }
       }
     }
-    // ServerHost URL substitution
-    if(S.serverHost&&urlOut.startsWith(S.serverHost.prefix)){
-      urlOut=S.serverHost.proto+'//{ServerHost}'+urlOut.slice(S.serverHost.prefix.length);
-      ref=ref&&ref.startsWith(S.serverHost.prefix)?S.serverHost.proto+'//{ServerHost}'+ref.slice(S.serverHost.prefix.length):ref;
-    }
+    // ServerHost URL substitution — apply all known host variables (ServerHost, ServerHost1, …)
+    urlOut=subHdrValC(urlOut, acHostVarMap);
+    if(ref) ref=subHdrValC(ref, acHostVarMap);
 
     // Build header injections for this request
     const hdrUsages=reqUsages.filter(u=>u.location==='header');

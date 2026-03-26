@@ -1539,8 +1539,8 @@ function genActionC(){
     }
 
     if(e.method==='GET'||e.method==='HEAD'){
-      o+=`\tweb_url("${n}",\n\t\t"URL=${subHostC(e.url)}",\n\t\t"Resource=0",\n`;
-      o+=`\t\t"RecContentType=${ct}",\n\t\t"Referer=${subHostC(ref)}",\n`;
+      o+=`\tweb_url("${n}",\n\t\t"URL=${subHdrValC(e.url,acHostVarMap)}",\n\t\t"Resource=0",\n`;
+      o+=`\t\t"RecContentType=${ct}",\n\t\t"Referer=${subHdrValC(ref,acHostVarMap)}",\n`;
       o+=`\t\t"Snapshot=${sn}",\n\t\t"Mode=HTML",\n\t\tLAST);\n\n`;
     } else {
       let encType='application/x-www-form-urlencoded';
@@ -1574,9 +1574,9 @@ function genActionC(){
         o+=`\t// TODO: Large .NET hidden field(s) detected. These values are dynamic per-session.\n`;
         o+=`\t// Use VuGen-Script-Studio.html with two HARs to auto-correlate these values.\n`;
       }
-      o+=`\tweb_custom_request("${n}",\n\t\t"URL=${subHostC(e.url)}",\n\t\t"Method=${e.method}",\n`;
+      o+=`\tweb_custom_request("${n}",\n\t\t"URL=${subHdrValC(e.url,acHostVarMap)}",\n\t\t"Method=${e.method}",\n`;
       o+=`\t\t"Resource=0",\n\t\t"RecContentType=${ct}",\n`;
-      o+=`\t\t"Referer=${subHostC(ref)}",\n\t\t"Snapshot=${sn}",\n\t\t"Mode=HTML",\n`;
+      o+=`\t\t"Referer=${subHdrValC(ref,acHostVarMap)}",\n\t\t"Snapshot=${sn}",\n\t\t"Mode=HTML",\n`;
       o+=`\t\t"EncType=${encType}",\n`;
       if(body){
         // Smart chunking  -  never break inside an escape sequence (\xHH, \X).
@@ -1795,13 +1795,8 @@ function genMainJS(){
     o+=`    // ${rn}\n`;
     o+=`    await new load.WebRequest({\n`;
     o+=`        id: ${rid},\n`;
-    // URL (base) with optional ServerHost substitution
-    if(S.serverHost && urlBase.startsWith(S.serverHost.prefix)){
-      const path=urlBase.slice(S.serverHost.prefix.length).replace(/`/g,'\\`');
-      o+=`        url: \`${S.serverHost.proto}//\${SERVER_HOST}${path}\`,\n`;
-    } else {
-      o+=`        url: "${escJs(urlBase)}",\n`;
-    }
+    // URL substitution — replaces all known hostnames (SERVER_HOST, SERVER_HOST1, …)
+    o+=`        url: ${subHdrValMj(urlBase, mjHostVarMap)},\n`;
     // queryString object (only when URL had query params)
     if(qsEntries.length>0){
       o+=`        queryString: {\n`;
