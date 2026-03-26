@@ -1436,8 +1436,10 @@ function genActionC(){
       autoHdrs[fk]=bestVal;
     }
   }
-  // When non-Bearer auth is detected, suppress Authorization header — web_set_user handles it
-  if(S.auth&&['kerberos','ntlm','negotiate','basic','digest'].includes(S.auth.type))
+  // Suppress Authorization header only when value is a Negotiate/NTLM challenge — web_set_user handles those.
+  // Bearer tokens must remain so they appear on every API request after SSO login.
+  if(S.auth&&['kerberos','ntlm','negotiate'].includes(S.auth.type)&&
+     autoHdrs['authorization']&&/^(negotiate|ntlm)\s/i.test(autoHdrs['authorization']))
     delete autoHdrs['authorization'];
 
   // Helper: substitute primary server hostname with {ServerHost} param token
@@ -1512,8 +1514,8 @@ function genActionC(){
       if(SKIP_HDR_AC.has(k)||k.startsWith(':')) continue;
       if(autoHdrs[k]===h.value) continue;         // global already covers this exact value — skip
       if(k==='accept'&&h.value==='*/*') continue; // VuGen default — never needed
-      // Authorization is handled by web_set_user for non-Bearer auth; Bearer is dynamic (manual)
-      if(k==='authorization'&&S.auth&&['kerberos','ntlm','negotiate','basic','digest'].includes(S.auth.type)) continue;
+      // Suppress only Negotiate/NTLM challenge headers — Bearer and other auth headers must be emitted
+      if(k==='authorization'&&S.auth&&['kerberos','ntlm','negotiate'].includes(S.auth.type)&&/^(negotiate|ntlm)\s/i.test(h.value)) continue;
       o+=`\tweb_add_header("${hdrTitleCase(k)}", "${escJs(h.value)}");\n`;
     }
 
@@ -1655,7 +1657,7 @@ function genMainJS(){
   const defHdrs=firstE?filtHdrs(firstE):{'accept-language':'en-US,en;q=0.9'};
 
   // -- initialize ------------------------------------------------------------
-  const _shHost=S.serverHost?(S.serverHost.proto+'//'+S.serverHost.host):'';
+  const _shHost=S.serverHost?S.serverHost.host:'';
   o+=`let SERVER_HOST = '${_shHost}';\n\n`;
   o+='load.initialize("Initialize", async function() {\n';
   o+='    load.log("Initializing Vuser " + load.config.user.userId, load.LogLevel.debug);\n\n';
@@ -1753,7 +1755,7 @@ function genMainJS(){
       const kl=k.toLowerCase();
       if(kl==='accept'&&v==='*/*') continue;
       if(defHdrs[k]!==undefined&&defHdrs[k]===v) continue;
-      if(kl==='authorization'&&S.auth&&['kerberos','ntlm','negotiate','basic','digest'].includes(S.auth.type)) continue;
+      if(kl==='authorization'&&S.auth&&['kerberos','ntlm','negotiate'].includes(S.auth.type)&&/^(negotiate|ntlm)\s/i.test(v)) continue;
       extraHdrs[k]=v;
     }
 

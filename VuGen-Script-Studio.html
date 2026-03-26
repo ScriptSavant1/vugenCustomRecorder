@@ -2334,7 +2334,7 @@ function genMainJS(entries, correlations){
   }
 
   // ── initialize ────────────────────────────────────────────────────────────
-  const _shHostMj=S.serverHost?(S.serverHost.proto+'//'+S.serverHost.host):'';
+  const _shHostMj=S.serverHost?S.serverHost.host:'';
   o+=`let SERVER_HOST = '${_shHostMj}';\n\n`;
   o+='load.initialize("Initialize", async function() {\n';
   o+='    load.log("Initializing Vuser " + load.config.user.userId, load.LogLevel.debug);\n\n';
@@ -2530,8 +2530,8 @@ function genMainJS(entries, correlations){
         extraHdrs[k]={dynamic:true,expr};
       } else if(k==='accept'&&v==='*/*'){
         // DevWeb default — never needed
-      } else if(k==='authorization'&&S.auth&&['kerberos','ntlm','negotiate','basic','digest'].includes(S.auth.type)){
-        // Handled by load.setUserCredentials — never emit as a static header
+      } else if(k==='authorization'&&S.auth&&['kerberos','ntlm','negotiate'].includes(S.auth.type)&&/^(negotiate|ntlm)\s/i.test(v)){
+        // Negotiate/NTLM challenge — handled by load.setUserCredentials, never emit as static header
       } else if(defHdrs[k]===undefined||defHdrs[k]!==v||dynHdrKeysMj.has(k)){
         // Check if this header value is an unresolved candidate — never emit static dynamic values
         let candHintMj=null;
@@ -2917,8 +2917,10 @@ function genActionC(entries, correlations){
       autoHdrs[fk]=bestVal;
     }
   }
-  // When non-Bearer auth is detected, suppress Authorization header — web_set_user handles it
-  if(S.auth&&['kerberos','ntlm','negotiate','basic','digest'].includes(S.auth.type))
+  // Suppress Authorization header only when value is a Negotiate/NTLM challenge — setUserCredentials handles those.
+  // Bearer tokens must remain so they appear on every API request after SSO login.
+  if(S.auth&&['kerberos','ntlm','negotiate'].includes(S.auth.type)&&
+     autoHdrs['authorization']&&/^(negotiate|ntlm)\s/i.test(autoHdrs['authorization']))
     delete autoHdrs['authorization'];
   // Remove headers managed by correlations — those need per-request dynamic substitution
   for(const corr of correlations){
@@ -3094,7 +3096,7 @@ function genActionC(entries, correlations){
       if(SKIP_HDR_AC.has(k)||k.startsWith(':')) continue;
       if(autoHdrs[k]===h.value) continue;          // global already covers this exact value — skip
       if(k==='accept'&&h.value==='*/*') continue;  // VuGen default — never needed
-      if(k==='authorization'&&S.auth&&['kerberos','ntlm','negotiate','basic','digest'].includes(S.auth.type)) continue;
+      if(k==='authorization'&&S.auth&&['kerberos','ntlm','negotiate'].includes(S.auth.type)&&/^(negotiate|ntlm)\s/i.test(h.value)) continue;
       if(corrHdrKeys.has(k)) continue;             // already emitted as correlation
       // Check if this header's value is an unresolved candidate — never emit static dynamic values
       let candHint=null;
