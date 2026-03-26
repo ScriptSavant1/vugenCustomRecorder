@@ -1689,8 +1689,11 @@ function genMainJS(){
   o+='load.WebRequest.defaults.returnBody = false;\n';
   o+='load.WebRequest.defaults.downloadHtmlStaticResources = true;\n';
   o+='load.WebRequest.defaults.headers = {\n';
-  for(const [k,v] of Object.entries(defHdrs))
+  for(const [k,v] of Object.entries(defHdrs)){
+    // Suppress Negotiate/NTLM tokens — session-specific, handled by setUserCredentials
+    if(k.toLowerCase()==='authorization'&&/^(negotiate|ntlm)\s/i.test(v)) continue;
     o+=`    "${escJs(k)}": "${escJs(v)}",\n`;
+  }
   o+='};\n\n';
 
   // Transaction declarations (module-level)
@@ -1925,6 +1928,26 @@ function detectAuth(entries){
   return best;
 }
 
+// Fallback: if Chrome omitted Negotiate headers from the HAR, infer Windows auth from
+// corporate-internal TLD hostnames (e.g. .mde .local .corp .internal).
+function detectCorporateAuth(entries, currentAuth){
+  if(currentAuth&&['kerberos','ntlm','negotiate'].includes(currentAuth.type)) return currentAuth;
+  const PUB=/\.(com|org|net|io|co|app|dev|cloud|gov|edu|biz|info|tech|site|online|store|tv|me|us|uk|au|ca|de|fr|jp|sg|in|eu|nz|nl|se|no|fi|dk|be|at|ch|es|it|pl|cz|ru|br|mx|ar|cl|za|ae|sa|kw|qa)(\.[a-z]{2})?$/i;
+  const AZURE=/^(login\.microsoftonline\.com|sts\.windows\.net|login\.windows\.net)$/i;
+  for(const e of (entries||[])){
+    if(e.isMarker||e.filtered) continue;
+    let h=''; try{h=new URL(e.url).hostname;}catch{continue;}
+    if(!h||/^\d{1,3}(\.\d{1,3}){3}$/.test(h)||h==='localhost') continue;
+    if(!PUB.test(h)||AZURE.test(h)){
+      try{
+        const u=new URL(e.url),port=u.port||(u.protocol==='https:'?'443':'80'),hp=u.hostname+':'+port;
+        return{type:'negotiate',host:u.hostname,port,hostport:hp,realm:hp};
+      }catch{}
+    }
+  }
+  return currentAuth;
+}
+
 function genDefaultCfg(auth){
   if(!auth||!['kerberos','negotiate','ntlm'].includes(auth.type))
     return WEB_DEFAULT_CFG;
@@ -1977,7 +2000,7 @@ function detectServerHost(entries){
 }
 
 function buildScripts(){
-  S.auth=detectAuth(S.entries);
+  S.auth=detectCorporateAuth(S.entries, detectAuth(S.entries));
   S.serverHost=detectServerHost(S.entries.filter(e=>!e.filtered&&!e.isMarker));
   const isWeb = S.format==='webhttp' || S.format==='both';
   const isDev = S.format==='devweb'  || S.format==='both';
@@ -5255,7 +5278,7 @@ RunLogicObjectKind="Action"
 // ===========================================================================
 // ZIP PROJECT GENERATORS
 // ===========================================================================
-function genUsrFile(scriptName){
+function genUsrFile(scriptName, paramFile=''){
   const txnNames = S.txns.map(t=>t.name);
   const orderLine = txnNames.length
     ? `[TransactionsOrder]\nOrder="${txnNames.join('__*delimiter*__')}"\n` : '';
@@ -5264,7 +5287,7 @@ function genUsrFile(scriptName){
   return `[General]
 Type=Multi
 DefaultCfg=default.cfg
-ParameterFile=
+ParameterFile=${paramFile}
 GlobalParameterFile=
 NewFunctionHeader=1
 RunType=cci
@@ -5346,7 +5369,7 @@ function genScriptUploadMetadata(scriptName){
 </VugenScriptMetadata>`;
 }
 
-function genDevWebUsrFile(scriptName){
+function genDevWebUsrFile(scriptName, paramFile=''){
   const txnNames = S.txns.map(t=>t.name);
   const orderVal = txnNames.join('__*delimiter*__');
   return `[General]
@@ -5354,7 +5377,7 @@ Type=DevWeb
 DefaultCfg=default.cfg
 MajorVersion=25
 MinorVersion=3
-ParameterFile=
+ParameterFile=${paramFile}
 GlobalParameterFile=
 RunType=DevWeb
 NewFunctionHeader=1
@@ -5435,13 +5458,26 @@ async function dlZip(format){
   async function makeWebHttpZip(){
     const name='WebHttpScript';
     const zip=new JSZip();
+    // Auth params
+    const _acAuth=S.auth&&['kerberos','ntlm','negotiate','basic','digest'].includes(S.auth.type);
+    const _acWin=S.auth&&['kerberos','ntlm','negotiate'].includes(S.auth.type);
+    const _acKeys=_acAuth?(_acWin?['AuthUsername','AuthPassword','AuthDomain']:['AuthUsername','AuthPassword']):[];
+    const _acVals=_acAuth?(_acWin?['<enter_username>','<enter_password>','<enter_domain>']:['<enter_username>','<enter_password>']):[];
+    let _acPrmFile='';
+    if(_acKeys.length){
+      let prm='';
+      _acKeys.forEach((k,i)=>{prm+=`[parameter:${k}]\nColumnName="${k}"\nDelimiter=","\nGenerateNewVal="EachIteration"\nOriginalValue="${_acVals[i]}"\nOutOfRangePolicy="ContinueWithLast"\nParamName="${k}"\nSelectNextRow="Sequential"\nStartRow="1"\nTable="collection_data.dat"\nTableLocation="Local"\nType="Table"\nauto_allocate_block_size="1"\nvalue_for_each_vuser=""\n\n`;});
+      zip.file('ParameterFile.prm', prm);
+      zip.file('collection_data.dat', _acKeys.join(',')+'\n'+_acVals.join(',')+'\n');
+      _acPrmFile='ParameterFile.prm';
+    }
     zip.file('Action.c',         S.scripts.ac||'');
     zip.file('vuser_init.c',     S.scripts.vi||'');
     zip.file('vuser_end.c',      S.scripts.ve||'');
     zip.file('globals.h',        S.scripts.gh||'');
     zip.file('default.cfg',      genDefaultCfg(S.auth));
     zip.file('default.usp',      WEB_DEFAULT_USP);
-    zip.file(name+'.usr',        genUsrFile(name));
+    zip.file(name+'.usr',        genUsrFile(name, _acPrmFile));
     zip.file('ScriptUploadMetadata.xml', genScriptUploadMetadata(name));
     zip.file('lrw_custom_body.h',        LRW_CUSTOM_BODY_H);
     zip.file('custom_body_variables.txt',CUSTOM_BODY_VARIABLES_TXT);
@@ -5456,13 +5492,26 @@ async function dlZip(format){
   async function makeDevWebZip(){
     const name='DevWebScript';
     const zip=new JSZip();
+    // Auth params
+    const _dvAuth=S.auth&&['kerberos','ntlm','negotiate','basic','digest'].includes(S.auth.type);
+    const _dvWin=S.auth&&['kerberos','ntlm','negotiate'].includes(S.auth.type);
+    const _dvKeys=_dvAuth?(_dvWin?['AuthUsername','AuthPassword','AuthDomain']:['AuthUsername','AuthPassword']):[];
+    const _dvVals=_dvAuth?(_dvWin?['<enter_username>','<enter_password>','<enter_domain>']:['<enter_username>','<enter_password>']):[];
+    let _dvPrmsYml='parameters: []\n';
+    let _dvCsv='';
+    let _dvPrmFile='';
+    if(_dvKeys.length){
+      _dvPrmsYml='parameters:\n'+_dvKeys.map(k=>`  - name: ${k}\n    type: csv\n    fileName: collection_data.csv\n    columnName: ${k}\n    nextValue: iteration\n    nextRow: sequential\n    onEnd: loop\n`).join('');
+      _dvCsv=_dvKeys.join(',')+'\n'+_dvVals.join(',')+'\n';
+      _dvPrmFile='parameters.yml';
+    }
     zip.file('main.js',        S.scripts.mj||'');
     zip.file('rts.yml',        genRtsYml(S.auth));
     zip.file('scenario.yml',   DEVWEB_SCENARIO_YML);
     zip.file('tsconfig.json',  DEVWEB_TSCONFIG_JSON);
     zip.file('default.cfg',    DEVWEB_DEFAULT_CFG);
     zip.file('default.usp',    DEVWEB_DEFAULT_USP);
-    zip.file(name+'.usr',      genDevWebUsrFile(name));
+    zip.file(name+'.usr',      genDevWebUsrFile(name, _dvPrmFile));
     zip.file('ScriptUploadMetadata.xml', genDevWebScriptUploadMetadata(name));
     zip.file('Action.c',       'Action()\n{\n\treturn 0;\n}\n');
     zip.file('vuser_init.c',   'vuser_init()\n{\n\treturn 0;\n}\n');
@@ -5470,7 +5519,8 @@ async function dlZip(format){
     zip.file('Bookmarks.xml',  '<?xml version="1.0" encoding="utf-8"?><Bookmarks />');
     zip.file('Breakpoints.xml','<BreakpointsRoot Version="1" />');
     zip.file('UserTasks.xml',  '<?xml version="1.0" encoding="utf-8"?>\n<App Name="Virtual User Generator">\n  <Tasks />\n</App>');
-    zip.file('parameters.yml', 'parameters: []\n');
+    zip.file('parameters.yml', _dvPrmsYml);
+    if(_dvCsv) zip.file('collection_data.csv', _dvCsv);
     zip.file('DevWebSdk.d.ts', DEVWEB_SDK_DTS);
     const blob=await zip.generateAsync({type:'blob'});
     const a=document.createElement('a');
