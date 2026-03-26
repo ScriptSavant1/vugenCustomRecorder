@@ -1945,6 +1945,44 @@ function twoHarCorrelate(entries1, entries2){
 // ═══════════════════════════════════════════════════════════════════════════
 function escJs(s){ return String(s).replace(/\\/g,'\\\\').replace(/"/g,'\\"').replace(/\n/g,'\\n').replace(/\r/g,'\\r'); }
 function escTpl(s){ return String(s).replace(/`/g,'\\`').replace(/\$\{/g,'\\${'); }
+function buildHdrHostMap(entries,primaryHost){
+  const map={};
+  if(primaryHost) map[primaryHost]='SERVER_HOST';
+  const seen=new Set(primaryHost?[primaryHost]:[]);
+  const extra=[];
+  for(const e of(entries||[])){
+    if(e.filtered||e.isMarker) continue;
+    for(const h of(e.reqHdrs||[])){
+      let m,re=/https?:\/\/([^/\s?#:]+)(?::[0-9]+)?/g;
+      while((m=re.exec(h.value||''))!==null){
+        if(!seen.has(m[1])){seen.add(m[1]);extra.push(m[1]);}
+      }
+    }
+  }
+  extra.forEach((hh,i)=>{map[hh]='SERVER_HOST'+(i+1);});
+  return map;
+}
+function subHdrValMj(val,hostVarMap){
+  let r=val,ch=false;
+  for(const[_h,_v]of Object.entries(hostVarMap).sort((a,b)=>b[0].length-a[0].length)){
+    if(!_h) continue;
+    const esc=_h.replace(/[.*+?^${}()|[\]\\]/g,'\\$&');
+    const n=r.replace(new RegExp('(https?://)'+esc+'(:[0-9]+)?(?=[/?#\\s"\'`]|$)','g'),'$1\x00HDRH_'+_v+'\x00$2');
+    if(n!==r){ch=true;r=n;}
+  }
+  if(!ch) return'"'+escJs(val)+'"';
+  return'`'+escTpl(r).replace(/\x00HDRH_([^\x00]+)\x00/g,'${$1}')+'`';
+}
+function subHdrValC(val,hostVarMap){
+  let r=val;
+  for(const[_h,_v]of Object.entries(hostVarMap).sort((a,b)=>b[0].length-a[0].length)){
+    if(!_h) continue;
+    const esc=_h.replace(/[.*+?^${}()|[\]\\]/g,'\\$&');
+    const lrP=_v==='SERVER_HOST'?'ServerHost':'ServerHost'+_v.replace('SERVER_HOST','');
+    r=r.replace(new RegExp('(https?://)'+esc+'(:[0-9]+)?(?=[/?#\\s"\'`]|$)','g'),'$1{'+lrP+'}$2');
+  }
+  return r;
+}
 function esc(s){ return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
 function fmtSize(b){ if(!b||b<=0)return '-'; if(b<1024)return b+'B'; if(b<1048576)return (b/1024).toFixed(1)+'KB'; return (b/1048576).toFixed(1)+'MB'; }
 // Returns true if body text requires BodyBinary= (non-printable chars outside \t \n \r range)
@@ -2381,53 +2419,20 @@ function genMainJS(entries, correlations){
     }
   }
 
-  // ── initialize ────────────────────────────────────────────────────────────
+  // ── module-level declarations ─────────────────────────────────────────────
   const _shHostMj=S.serverHost?S.serverHost.host:'';
-  o+=`let SERVER_HOST = '${_shHostMj}';\n\n`;
-  o+='load.initialize("Initialize", async function() {\n';
-  o+='    load.log("Initializing Vuser " + load.config.user.userId, load.LogLevel.debug);\n\n';
-  const nonGenCorrs=correlations.filter(c=>c.extractorType!=='generate');
-  if(nonGenCorrs.length>0){
-    o+='    // Correlated dynamic values — extracted at runtime\n';
-    for(const c of nonGenCorrs) o+=`    load.global.${c.name} = null;\n`;
-    o+='\n';
-  }
-  if(S.candidates&&S.candidates.length>0){
-    // Header candidates: emit load.global.X = null so action can reference them
-    const hdrCands=S.candidates.filter(c=>c.usages.some(u=>u.location==='header'));
-    if(hdrCands.length>0){
-      o+='    // Unresolved dynamic headers — add extractors on the responses that set these values\n';
-      for(const cand of hdrCands){
-        const safeHint=sanitizeCandHint(cand.hint);
-        o+=`    load.global.${safeHint} = null; // TODO: add extractor\n`;
-      }
-      o+='\n';
-    }
-    // Non-header candidates: body/query values that need manual identification
-    const otherCands=S.candidates.filter(c=>!c.usages.some(u=>u.location==='header'));
-    if(otherCands.length>0){
-      o+='    // TODO: Unresolved correlations — source response body was not captured in HAR.\n';
-      o+='    // Re-record with DevTools "Disable cache" enabled (\u2699 \u2192 Disable cache) to trace source.\n';
-      o+='    // Once the extraction source is identified, add a TextCheckExtractor or JsonPathExtractor\n';
-      o+='    // to the response that returns the value, and assign it to load.global.<name>.\n';
-      for(const cand of otherCands){
-        const safeHint=sanitizeCandHint(cand.hint);
-        const usedAt=(cand.usages||[]).map(u=>u.reqUrl||u.reqIdx).filter(Boolean).slice(0,2).join(', ');
-        o+=`    //   • ${safeHint} — used in: ${usedAt||'request body'}\n`;
-      }
-      o+='\n';
-    }
-  }
-  o+='    load.log("Initialization complete", load.LogLevel.debug);\n';
-  o+='});\n\n';
+  const mjHostVarMap=buildHdrHostMap(entries,_shHostMj);
 
-  // ── action ────────────────────────────────────────────────────────────────
-  o+='load.action("Action", async function() {\n';
-  o+='    load.log("Starting action - Iteration " + load.config.runtime.iteration, load.LogLevel.debug);\n\n';
-  o+='    // Default request options\n';
-  o+='    load.WebRequest.defaults.returnBody = false;\n';
-  o+='    load.WebRequest.defaults.downloadHtmlStaticResources = true;\n';
-  o+='    load.WebRequest.defaults.headers = {\n';
+  // Host variables
+  o+=`let SERVER_HOST = '${_shHostMj}';\n`;
+  Object.entries(mjHostVarMap).filter(([,v])=>v!=='SERVER_HOST').forEach(([h,v])=>{o+=`let ${v} = '${h}';\n`;});
+  o+='\nlet think_time = 1;\n\n';
+
+  // Default request options (module-level)
+  o+='// Default request options\n';
+  o+='load.WebRequest.defaults.returnBody = false;\n';
+  o+='load.WebRequest.defaults.downloadHtmlStaticResources = true;\n';
+  o+='load.WebRequest.defaults.headers = {\n';
   for(const [k,v] of Object.entries(defHdrs)){
     // Skip headers that are dynamic (correlated or unresolved candidate) — handled per-request
     if(dynHdrKeysMj.has(k)) continue;
@@ -2443,13 +2448,70 @@ function genMainJS(entries, correlations){
     }
     if(isDynDef){
       const expr=escTpl(dv).replace(/\x00DYNSTART_([^]+?)\x00DYNEND/g,'${load.global.$1}');
-      o+=`        "${escJs(k)}": \`${expr}\`,\n`;
+      o+=`    "${escJs(k)}": \`${expr}\`,\n`;
     } else {
-      o+=`        "${escJs(k)}": "${escJs(v)}",\n`;
+      o+=`    "${escJs(k)}": ${subHdrValMj(v,mjHostVarMap)},\n`;
     }
   }
-  o+='    };\n\n';
-  // Authentication credentials
+  o+='};\n\n';
+
+  // Transaction declarations (module-level)
+  const txnNames=S.txns.map(t=>t.name);
+  const hasMarkers=txnNames.length>0;
+  o+='// Transaction declarations\n';
+  if(hasMarkers){
+    txnNames.forEach((nm,i)=>{
+      const tsNum=String(i+1).padStart(2,'0');
+      const scName=`SC01_${tsNum}_${nm.replace(/^[Tt]\d+[_-]/,'').toUpperCase()}`;
+      o+=`let TS${tsNum} = new load.Transaction("${scName}");\n`;
+    });
+  } else {
+    o+='let TS01 = new load.Transaction("SC01_01_Transaction");\n';
+  }
+  o+='\n';
+
+  // Global correlation variables (module-level)
+  const nonGenCorrs=correlations.filter(c=>c.extractorType!=='generate');
+  if(nonGenCorrs.length>0){
+    o+='// Correlated dynamic values — extracted at runtime\n';
+    for(const c of nonGenCorrs) o+=`load.global.${c.name} = null;\n`;
+    o+='\n';
+  }
+  if(S.candidates&&S.candidates.length>0){
+    const hdrCands=S.candidates.filter(c=>c.usages.some(u=>u.location==='header'));
+    if(hdrCands.length>0){
+      o+='// Unresolved dynamic headers — add extractors on the responses that set these values\n';
+      for(const cand of hdrCands){
+        const safeHint=sanitizeCandHint(cand.hint);
+        o+=`load.global.${safeHint} = null; // TODO: add extractor\n`;
+      }
+      o+='\n';
+    }
+    const otherCands=S.candidates.filter(c=>!c.usages.some(u=>u.location==='header'));
+    if(otherCands.length>0){
+      o+='// TODO: Unresolved correlations — source response body was not captured in HAR.\n';
+      o+='// Re-record with DevTools "Disable cache" enabled (\u2699 \u2192 Disable cache) to trace source.\n';
+      o+='// Once the extraction source is identified, add a TextCheckExtractor or JsonPathExtractor\n';
+      o+='// to the response that returns the value, and assign it to load.global.<name>.\n';
+      for(const cand of otherCands){
+        const safeHint=sanitizeCandHint(cand.hint);
+        const usedAt=(cand.usages||[]).map(u=>u.reqUrl||u.reqIdx).filter(Boolean).slice(0,2).join(', ');
+        o+=`//   • ${safeHint} — used in: ${usedAt||'request body'}\n`;
+      }
+      o+='\n';
+    }
+  }
+
+  // ── initialize ────────────────────────────────────────────────────────────
+  o+='load.initialize("Initialize", async function() {\n';
+  o+='    load.log("Initializing Vuser " + load.config.user.userId, load.LogLevel.debug);\n\n';
+  o+='    load.log("Initialization complete", load.LogLevel.debug);\n';
+  o+='});\n\n';
+
+  // ── action ────────────────────────────────────────────────────────────────
+  o+='load.action("Action", async function() {\n';
+  o+='    load.log("Starting action - Iteration " + load.config.runtime.iteration, load.LogLevel.debug);\n\n';
+  // Authentication credentials (per-iteration — stays in action)
   const AUTH_LABELS_JS={kerberos:'Kerberos',ntlm:'NTLM',negotiate:'Negotiate (Kerberos/NTLM)',basic:'Basic',digest:'Digest'};
   if(S.auth && AUTH_LABELS_JS[S.auth.type]){
     const lbl=AUTH_LABELS_JS[S.auth.type];
@@ -2470,7 +2532,6 @@ function genMainJS(entries, correlations){
     o+=`    });\n\n`;
   }
   // Helper functions for generate-type correlations.
-  // Each returns a fresh token value — called inline only for requests that need the header.
   const genCorrsMj=correlations.filter(c=>c.extractorType==='generate');
   if(genCorrsMj.length>0){
     o+='    // Dynamic token generators — called only for requests that need the header\n';
@@ -2478,7 +2539,6 @@ function genMainJS(entries, correlations){
       const pat=c.extractorConfig.pattern||'alphanumeric';
       const len=c.extractorConfig.length||19;
       o+=`    function gen_${c.name}() {\n`;
-      // Use load.utils — VuGen DevWeb native API (not Node.js require)
       if(pat==='uuid')
         o+=`        return load.utils.uuid();\n`;
       else if(pat==='hex64')
@@ -2492,24 +2552,6 @@ function genMainJS(entries, correlations){
       o+=`    }\n`;
     }
     o+='\n';
-  }
-
-  // Collect transaction names (from markers, or fallback to single)
-  const txnNames=S.txns.map(t=>t.name);
-  const hasMarkers=txnNames.length>0;
-
-  // Transaction declarations at top of action
-  if(hasMarkers){
-    o+='    // Transaction declarations\n';
-    txnNames.forEach((nm,i)=>{
-      const tsNum=String(i+1).padStart(2,'0');
-      const scName=`SC01_${tsNum}_${nm.replace(/^[Tt]\d+[_-]/,'').toUpperCase()}`;
-      o+=`    let TS${tsNum} = new load.Transaction("${scName}");\n`;
-    });
-    o+='    let think_time = 1;\n\n';
-  } else {
-    o+='    let TS01 = new load.Transaction("SC01_01_Transaction");\n';
-    o+='    let think_time = 1;\n\n';
   }
 
   if(!hasMarkers){
@@ -2571,9 +2613,16 @@ function genMainJS(entries, correlations){
           extraHdrs[k]={dynamic:true,expr:`\${gen_${hdrUsage.name}()}`};
           continue;
         }
-        // Replace with dynamic expression
-        const expr=hdrUsage.prefix
-          ?`${hdrUsage.prefix}\${load.global.${hdrUsage.name}}`
+        // Replace with dynamic expression — also substitute hostname in prefix
+        let rawPfx=hdrUsage.prefix||'';
+        for(const[_hh,_hv] of Object.entries(mjHostVarMap).sort((a,b)=>b[0].length-a[0].length)){
+          if(!_hh) continue;
+          const _re=_hh.replace(/[.*+?^${}()|[\]\\]/g,'\\$&');
+          rawPfx=rawPfx.replace(new RegExp('(https?://)'+_re+'(:[0-9]+)?(?=[/?#\\s"\'`]|$)','g'),'$1\x00HDRH_'+_hv+'\x00$2');
+        }
+        const subPfx=escTpl(rawPfx).replace(/\x00HDRH_([^\x00]+)\x00/g,'${$1}');
+        const expr=subPfx
+          ?`${subPfx}\${load.global.${hdrUsage.name}}`
           :`\${load.global.${hdrUsage.name}}`;
         extraHdrs[k]={dynamic:true,expr};
       } else if(k==='accept'&&v==='*/*'){
@@ -2607,7 +2656,16 @@ function genMainJS(entries, correlations){
         }
       }
       if(changed){
-        const expr=escTpl(v).replace(/\x00DYNSTART_([^]+?)\x00DYNEND/g,'${load.global.$1}');
+        // Also substitute hostnames in non-placeholder portions before escaping
+        let vSub=v;
+        for(const[_hh,_hv] of Object.entries(mjHostVarMap).sort((a,b)=>b[0].length-a[0].length)){
+          if(!_hh) continue;
+          const _re=_hh.replace(/[.*+?^${}()|[\]\\]/g,'\\$&');
+          vSub=vSub.replace(new RegExp('(https?://)'+_re+'(:[0-9]+)?(?=[/?#\\s"\'`\\x00]|$)','g'),'$1\x00HDRH_'+_hv+'\x00$2');
+        }
+        const expr=escTpl(vSub)
+          .replace(/\x00DYNSTART_([^]+?)\x00DYNEND/g,'${load.global.$1}')
+          .replace(/\x00HDRH_([^\x00]+)\x00/g,'${$1}');
         extraHdrs[k]={dynamic:true,expr};
       }
     }
@@ -2777,7 +2835,7 @@ function genMainJS(entries, correlations){
           o+=`            // TODO: Add extractor for "${k}" on the response that sets it.\n`;
           o+=`            "${escJs(k)}": \`\${load.global.${h.todo}}\`,\n`;
         }
-        else o+=`            "${escJs(k)}": "${escJs(h.value)}",\n`;
+        else o+=`            "${escJs(k)}": ${subHdrValMj(h.value,mjHostVarMap)},\n`;
       }
       o+=`        },\n`;
     }
@@ -2998,12 +3056,22 @@ function genActionC(entries, correlations){
     helperFns+=`\tweb_add_header("${hdrTitleCase(hdrKey)}", "{${c.name}}");\n`;
     helperFns+=`}\n\n`;
   }
+  // Build host variable map for header value substitution
+  const acHostVarMap=buildHdrHostMap(entries,S.serverHost?S.serverHost.host:'');
+
   let o=helperFns+'Action()\n{\n\n\tweb_set_sockets_option("SSL_VERSION", "AUTO");\n\n';
   // Server configuration
   if(S.serverHost){
     o+=`\t// Server configuration — update "ServerHost" value to target different environments\n`;
     o+=`\t// e.g. test: ${S.serverHost.host}  prod: prod-server.company.com\n`;
-    o+=`\tlr_save_string("${S.serverHost.host}", "ServerHost");\n\n`;
+    o+=`\tlr_save_string("${S.serverHost.host}", "ServerHost");\n`;
+    // Extra hostnames found in headers
+    Object.entries(acHostVarMap).forEach(([hh,hv])=>{
+      if(hv==='SERVER_HOST') return;
+      const lrP='ServerHost'+hv.replace('SERVER_HOST','');
+      o+=`\tlr_save_string("${hh}", "${lrP}");\n`;
+    });
+    o+='\n';
   }
   // Authentication
   const AUTH_LABELS_C={kerberos:'Kerberos',ntlm:'NTLM',negotiate:'Negotiate (Kerberos/NTLM)',basic:'Basic',digest:'Digest'};
@@ -3023,7 +3091,7 @@ function genActionC(entries, correlations){
   }
   // Global headers (same value on every request) — set once with web_add_auto_header
   for(const [k,v] of Object.entries(autoHdrs)){
-    o+=`\tweb_add_auto_header("${hdrTitleCase(k)}", "${escJs(v)}");\n`;
+    o+=`\tweb_add_auto_header("${hdrTitleCase(k)}", "${escJs(subHdrValC(v,acHostVarMap))}");\n`;
   }
   if(Object.keys(autoHdrs).length) o+='\n';
   let snap=1;
@@ -3161,7 +3229,7 @@ function genActionC(entries, correlations){
         o+=`\t// Example (cookie source): web_reg_save_param("${candHint}", "LB=${k.toUpperCase().replace(/-/g,'_')}=", "RB=;", "Search=Headers", "Ord=1", LAST);\n`;
         o+=`\tweb_add_header("${hdrTitleCase(k)}", "{${candHint}}");\n`;
       } else {
-        o+=`\tweb_add_header("${hdrTitleCase(k)}", "${escJs(h.value)}");\n`;
+        o+=`\tweb_add_header("${hdrTitleCase(k)}", "${escJs(subHdrValC(h.value,acHostVarMap))}");\n`;
       }
     }
 
@@ -7147,14 +7215,17 @@ async function analyze(){
 
     // Auth detection
     S.auth=detectAuth(S.entries1);
-    // Add AuthUsername / AuthPassword params when credential-based auth is present
+    // Add AuthUsername / AuthPassword / AuthDomain params when credential-based auth is present
     if(S.auth&&['kerberos','negotiate','ntlm','basic','digest'].includes(S.auth.type)){
       if(!S.params.some(p=>p.csvKey==='AuthUsername')){
         const usernameDefault=S.auth.username||'<enter_username>';
-        S.params.unshift(
+        const isWinAuthParam=['kerberos','ntlm','negotiate'].includes(S.auth.type);
+        const authParams=[
           {name:'AuthPassword',csvKey:'AuthPassword',value:'<enter_password>',usages:[]},
           {name:'AuthUsername',csvKey:'AuthUsername',value:usernameDefault,usages:[]}
-        );
+        ];
+        if(isWinAuthParam) authParams.push({name:'AuthDomain',csvKey:'AuthDomain',value:'<enter_domain>',usages:[]});
+        S.params.unshift(...authParams);
       }
     }
     // ServerHost detection — used to build SERVER_HOST variable in generated scripts
@@ -7221,10 +7292,11 @@ async function analyze(){
           const ssoRealm=(()=>{try{return new URL(ssoRedirects[0].url).hostname;}catch{return 'sso-server:443';}})();
           S.auth={type:'negotiate',realm:ssoRealm,hostport:ssoRealm};
           ssoWindowsAuth=true;
-          // AuthUsername/AuthPassword params: the main block above ran before SSO detection,
+          // AuthUsername/AuthPassword/AuthDomain params: the main block above ran before SSO detection,
           // so add them here if not already present.
           if(!S.params.some(p=>p.csvKey==='AuthUsername')){
             S.params.unshift(
+              {name:'AuthDomain',csvKey:'AuthDomain',value:'<enter_domain>',usages:[]},
               {name:'AuthPassword',csvKey:'AuthPassword',value:'<enter_password>',usages:[]},
               {name:'AuthUsername',csvKey:'AuthUsername',value:'<enter_username>',usages:[]}
             );

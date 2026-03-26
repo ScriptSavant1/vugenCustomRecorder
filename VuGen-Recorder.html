@@ -1458,12 +1458,22 @@ function genActionC(){
     return _sh.proto+'//{ServerHost}'+url.slice(_sh.prefix.length);
   }
 
+  // Build host variable map for header value substitution
+  const acHostVarMap=buildHdrHostMap(S.entries,_sh?_sh.host:'');
+
   let o='Action()\n{\n\n\tweb_set_sockets_option("SSL_VERSION", "AUTO");\n\n';
   // Server configuration
   if(_sh){
     o+=`\t// Server configuration — update "ServerHost" value to target different environments\n`;
     o+=`\t// e.g. test: ${_sh.host}  prod: prod-server.company.com\n`;
-    o+=`\tlr_save_string("${_sh.host}", "ServerHost");\n\n`;
+    o+=`\tlr_save_string("${_sh.host}", "ServerHost");\n`;
+    // Extra hostnames found in headers
+    Object.entries(acHostVarMap).forEach(([hh,hv])=>{
+      if(hv==='SERVER_HOST') return;
+      const lrP='ServerHost'+hv.replace('SERVER_HOST','');
+      o+=`\tlr_save_string("${hh}", "${lrP}");\n`;
+    });
+    o+='\n';
   }
   // Authentication
   const AUTH_LABELS_C={kerberos:'Kerberos',ntlm:'NTLM',negotiate:'Negotiate (Kerberos/NTLM)',basic:'Basic',digest:'Digest'};
@@ -1483,7 +1493,7 @@ function genActionC(){
   }
   // Global headers (same value on every request)  -  set once with web_add_auto_header
   for(const [k,v] of Object.entries(autoHdrs)){
-    o+=`\tweb_add_auto_header("${hdrTitleCase(k)}", "${escJs(v)}");\n`;
+    o+=`\tweb_add_auto_header("${hdrTitleCase(k)}", "${escJs(subHdrValC(v,acHostVarMap))}");\n`;
   }
   if(Object.keys(autoHdrs).length) o+='\n';
   let snap=1;
@@ -1525,7 +1535,7 @@ function genActionC(){
       if(k==='accept'&&h.value==='*/*') continue; // VuGen default — never needed
       // Suppress only Negotiate/NTLM challenge headers — Bearer and other auth headers must be emitted
       if(k==='authorization'&&S.auth&&['kerberos','ntlm','negotiate'].includes(S.auth.type)&&/^(negotiate|ntlm)\s/i.test(h.value)) continue;
-      o+=`\tweb_add_header("${hdrTitleCase(k)}", "${escJs(h.value)}");\n`;
+      o+=`\tweb_add_header("${hdrTitleCase(k)}", "${escJs(subHdrValC(h.value,acHostVarMap))}");\n`;
     }
 
     if(e.method==='GET'||e.method==='HEAD'){
@@ -1665,14 +1675,38 @@ function genMainJS(){
   const firstE=S.entries.find((e,i)=>!e.isMarker&&!e.filtered&&!mjAutoFollowSet.has(i));
   const defHdrs=firstE?filtHdrs(firstE):{'accept-language':'en-US,en;q=0.9'};
 
-  // -- initialize ------------------------------------------------------------
+  // -- module-level declarations ---------------------------------------------
   const _shHost=S.serverHost?S.serverHost.host:'';
-  o+=`let SERVER_HOST = '${_shHost}';\n\n`;
+  const mjHostVarMap=buildHdrHostMap(S.entries,_shHost);
+
+  // Host variables
+  o+=`let SERVER_HOST = '${_shHost}';\n`;
+  Object.entries(mjHostVarMap).filter(([,v])=>v!=='SERVER_HOST').forEach(([h,v])=>{o+=`let ${v} = '${h}';\n`;});
+  o+='\nlet think_time = 1;\n\n';
+
+  // Default request options (module-level)
+  o+='// Default request options\n';
+  o+='load.WebRequest.defaults.returnBody = false;\n';
+  o+='load.WebRequest.defaults.downloadHtmlStaticResources = true;\n';
+  o+='load.WebRequest.defaults.headers = {\n';
+  for(const [k,v] of Object.entries(defHdrs))
+    o+=`    "${escJs(k)}": "${escJs(v)}",\n`;
+  o+='};\n\n';
+
+  // Transaction declarations (module-level)
+  if(S.txns.length>0){
+    o+='// Transaction declarations\n';
+    S.txns.forEach((txn,i)=>{
+      const tsNum=String(i+1).padStart(2,'0');
+      const scName=`SC01_${tsNum}_${txn.name.replace(/^[Tt]\d+[_-]/,'').toUpperCase()}`;
+      o+=`let TS${tsNum} = new load.Transaction("${scName}");\n`;
+    });
+    o+='\n';
+  }
+
+  // -- initialize ------------------------------------------------------------
   o+='load.initialize("Initialize", async function() {\n';
   o+='    load.log("Initializing Vuser " + load.config.user.userId, load.LogLevel.debug);\n\n';
-  o+='    // Initialize global variables for correlated dynamic values\n';
-  o+='    // load.global.accessToken = null;\n';
-  o+='    // load.global.sessionId   = null;\n\n';
   o+='    load.log("Initialization complete", load.LogLevel.debug);\n';
   o+='});\n\n';
 
@@ -1680,16 +1714,7 @@ function genMainJS(){
   o+='load.action("Action", async function() {\n';
   o+='    load.log("Starting action - Iteration " + load.config.runtime.iteration, load.LogLevel.debug);\n\n';
 
-  // Default request options
-  o+='    // Set default request options (applies to all requests)\n';
-  o+='    load.WebRequest.defaults.returnBody = false;\n';
-  o+='    load.WebRequest.defaults.downloadHtmlStaticResources = true;\n';
-  o+='    load.WebRequest.defaults.headers = {\n';
-  for(const [k,v] of Object.entries(defHdrs))
-    o+=`        "${escJs(k)}": "${escJs(v)}",\n`;
-  o+='    };\n\n';
-
-  // Authentication credentials
+  // Authentication credentials (per-iteration — stays in action)
   const AUTH_LABELS_JS={kerberos:'Kerberos',ntlm:'NTLM',negotiate:'Negotiate (Kerberos/NTLM)',basic:'Basic',digest:'Digest'};
   if(S.auth && AUTH_LABELS_JS[S.auth.type]){
     const lbl=AUTH_LABELS_JS[S.auth.type];
@@ -1708,17 +1733,6 @@ function genMainJS(){
     if(isWinAuth) o+=`        domain: load.params.AuthDomain,\n`;
     o+=`        host: ${hostArg}\n`;
     o+=`    });\n\n`;
-  }
-
-  // Transaction declarations (all at top)
-  if(S.txns.length>0){
-    o+='    // Transaction declarations\n';
-    S.txns.forEach((txn,i)=>{
-      const tsNum=String(i+1).padStart(2,'0');
-      const scName=`SC01_${tsNum}_${txn.name.replace(/^[Tt]\d+[_-]/,'').toUpperCase()}`;
-      o+=`    let TS${tsNum} = new load.Transaction("${scName}");\n`;
-    });
-    o+='    let think_time = 1;\n\n';
   }
 
   // Process entries  -  all requests in one action, transactions started/stopped inline
@@ -1795,7 +1809,7 @@ function genMainJS(){
     if(Object.keys(extraHdrs).length>0){
       o+=`        headers: {\n`;
       for(const [k,v] of Object.entries(extraHdrs))
-        o+=`            "${escJs(k)}": "${escJs(v)}",\n`;
+        o+=`            "${escJs(k)}": ${subHdrValMj(v,mjHostVarMap)},\n`;
       o+=`        },\n`;
     }
     if(e.body&&e.body.text){
@@ -5713,6 +5727,47 @@ function clearAll(){
 function esc(s){ return(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
 function escJs(s){ return(s||'').replace(/\\/g,'\\\\').replace(/"/g,'\\"').replace(/\n/g,'\\n').replace(/\r/g,'\\r').replace(/\t/g,'\\t'); }
 function escTpl(s){ return(s||'').replace(/\\/g,'\\\\').replace(/`/g,'\\`').replace(/\$\{/g,'\\${'); }
+// Build hostname→variable map by scanning all scripted request header values for URLs
+function buildHdrHostMap(entries,primaryHost){
+  const map={};
+  if(primaryHost) map[primaryHost]='SERVER_HOST';
+  const seen=new Set(primaryHost?[primaryHost]:[]);
+  const extra=[];
+  for(const e of(entries||[])){
+    if(e.filtered||e.isMarker) continue;
+    for(const h of(e.reqHdrs||[])){
+      let m,re=/https?:\/\/([^/\s?#:]+)(?::[0-9]+)?/g;
+      while((m=re.exec(h.value||''))!==null){
+        if(!seen.has(m[1])){seen.add(m[1]);extra.push(m[1]);}
+      }
+    }
+  }
+  extra.forEach((hh,i)=>{map[hh]='SERVER_HOST'+(i+1);});
+  return map;
+}
+// Substitute known hostnames in a header string value — DevWeb (backtick template literal)
+function subHdrValMj(val,hostVarMap){
+  let r=val,ch=false;
+  for(const[_h,_v]of Object.entries(hostVarMap).sort((a,b)=>b[0].length-a[0].length)){
+    if(!_h) continue;
+    const esc=_h.replace(/[.*+?^${}()|[\]\\]/g,'\\$&');
+    const n=r.replace(new RegExp('(https?://)'+esc+'(:[0-9]+)?(?=[/?#\\s"\'`]|$)','g'),'$1\x00HDRH_'+_v+'\x00$2');
+    if(n!==r){ch=true;r=n;}
+  }
+  if(!ch) return'"'+escJs(val)+'"';
+  return'`'+escTpl(r).replace(/\x00HDRH_([^\x00]+)\x00/g,'${$1}')+'`';
+}
+// Substitute known hostnames in a header string value — Web HTTP/HTML C ({LrParam} notation)
+function subHdrValC(val,hostVarMap){
+  let r=val;
+  for(const[_h,_v]of Object.entries(hostVarMap).sort((a,b)=>b[0].length-a[0].length)){
+    if(!_h) continue;
+    const esc=_h.replace(/[.*+?^${}()|[\]\\]/g,'\\$&');
+    const lrP=_v==='SERVER_HOST'?'ServerHost':'ServerHost'+_v.replace('SERVER_HOST','');
+    r=r.replace(new RegExp('(https?://)'+esc+'(:[0-9]+)?(?=[/?#\\s"\'`]|$)','g'),'$1{'+lrP+'}$2');
+  }
+  return r;
+}
 // Returns true if body text requires BodyBinary= (non-printable chars outside \t \n \r range)
 function needsBinary(text){
   for(let i=0;i<text.length;i++){
