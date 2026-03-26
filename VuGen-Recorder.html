@@ -1800,7 +1800,7 @@ function genMainJS(){
     // queryString object (only when URL had query params)
     if(qsEntries.length>0){
       o+=`        queryString: {\n`;
-      for(const [k,v] of qsEntries) o+=`            "${escJs(k)}": "${escJs(v)}",\n`;
+      for(const [k,v] of qsEntries) o+=`            "${escJs(k)}": ${subHdrValMj(v,mjHostVarMap)},\n`;
       o+=`        },\n`;
     }
     o+=`        method: "${e.method}",\n`;
@@ -1816,14 +1816,34 @@ function genMainJS(){
       if(bText.length>1500&&bMime==='application/x-www-form-urlencoded'&&/__VIEWSTATE|__EVENTVALIDATION|__RequestVerificationToken/.test(bText)){
         o+=`        // TODO: Large .NET hidden field(s) in body. Use Script Studio with two HARs to auto-correlate.\n`;
       }
-      if(bMime==='application/json'||bMime==='text/json'){
-        try{
-          const parsed=JSON.parse(bText);
-          const lines=JSON.stringify(parsed,null,4).split('\n');
-          o+=`        body: ${lines.map((l,i)=>i===0?l:'        '+l).join('\n')},\n`;
-        }catch{ o+=`        body: \`${escTpl(bText)}\`,\n`; }
+      if(bMime==='application/x-www-form-urlencoded'&&bText.indexOf('=')>=0){
+        // Form body: decode key=value pairs and apply hostname substitution on each value
+        const pairs=bText.split('&');
+        o+=`        body: {\n`;
+        for(const pair of pairs){
+          const eq=pair.indexOf('=');
+          const rawK=eq>=0?pair.substring(0,eq):pair;
+          const rawV=eq>=0?pair.substring(eq+1):'';
+          let k=rawK; try{k=decodeURIComponent(rawK.replace(/\+/g,' '));}catch(ex){}
+          let v=rawV; try{v=decodeURIComponent(rawV.replace(/\+/g,' '));}catch(ex){}
+          o+=`            "${escJs(k)}": ${subHdrValMj(v,mjHostVarMap)},\n`;
+        }
+        o+=`        },\n`;
+      } else if(bMime==='application/json'||bMime==='text/json'){
+        const {text:bSub,changed:bCh}=subRawMj(bText,mjHostVarMap);
+        if(bCh){
+          o+=`        body: \`${escTpl(bSub).replace(/\x00HDRH_([^\x00]+)\x00/g,'${$1}')}\`,\n`;
+        } else {
+          try{
+            const parsed=JSON.parse(bText);
+            const lines=JSON.stringify(parsed,null,4).split('\n');
+            o+=`        body: ${lines.map((l,i)=>i===0?l:'        '+l).join('\n')},\n`;
+          }catch{ o+=`        body: \`${escTpl(bText)}\`,\n`; }
+        }
       } else {
-        o+=`        body: \`${escTpl(bText)}\`,\n`;
+        const {text:bSub,changed:bCh}=subRawMj(bText,mjHostVarMap);
+        if(bCh) o+=`        body: \`${escTpl(bSub).replace(/\x00HDRH_([^\x00]+)\x00/g,'${$1}')}\`,\n`;
+        else    o+=`        body: \`${escTpl(bText)}\`,\n`;
       }
     } else if(e._fromNetLog && e.method!=='GET' && e.method!=='HEAD'){
       o+=`        // TODO: POST body not available in NetLog - add body property with your recorded request body\n`;
@@ -5796,11 +5816,28 @@ function subHdrValMj(val,hostVarMap){
   for(const[_h,_v]of Object.entries(hostVarMap).sort((a,b)=>b[0].length-a[0].length)){
     if(!_h) continue;
     const esc=_h.replace(/[.*+?^${}()|[\]\\]/g,'\\$&');
+    // Raw URL form: https://hostname/path
     const n=r.replace(new RegExp('(https?://)'+esc+'(:[0-9]+)?(?=[/?#\\s"\'`]|$)','g'),'$1\x00HDRH_'+_v+'\x00$2');
     if(n!==r){ch=true;r=n;}
+    // URL-encoded form: https%3A%2F%2Fhostname (common in redirect_uri= POST body params)
+    const n2=r.replace(new RegExp('(https?%3A%2F%2F)'+esc+'(?=%2F|%3F|%23|&|\\s|$)','gi'),'$1\x00HDRH_'+_v+'\x00');
+    if(n2!==r){ch=true;r=n2;}
   }
   if(!ch) return'"'+escJs(val)+'"';
   return'`'+escTpl(r).replace(/\x00HDRH_([^\x00]+)\x00/g,'${$1}')+'`';
+}
+// Apply hostname substitution to raw text, returning text with \x00HDRH_VAR\x00 placeholders (for body/backtick emission)
+function subRawMj(text,hostVarMap){
+  let r=text,ch=false;
+  for(const[_h,_v]of Object.entries(hostVarMap).sort((a,b)=>b[0].length-a[0].length)){
+    if(!_h) continue;
+    const esc=_h.replace(/[.*+?^${}()|[\]\\]/g,'\\$&');
+    const n=r.replace(new RegExp('(https?://)'+esc+'(:[0-9]+)?(?=[/?#\\s"\'`]|$)','g'),'$1\x00HDRH_'+_v+'\x00$2');
+    if(n!==r){ch=true;r=n;}
+    const n2=r.replace(new RegExp('(https?%3A%2F%2F)'+esc+'(?=%2F|%3F|%23|&|\\s|$)','gi'),'$1\x00HDRH_'+_v+'\x00');
+    if(n2!==r){ch=true;r=n2;}
+  }
+  return{text:r,changed:ch};
 }
 // Substitute known hostnames in a header string value — Web HTTP/HTML C ({LrParam} notation)
 function subHdrValC(val,hostVarMap){
@@ -5809,7 +5846,10 @@ function subHdrValC(val,hostVarMap){
     if(!_h) continue;
     const esc=_h.replace(/[.*+?^${}()|[\]\\]/g,'\\$&');
     const lrP=_v==='SERVER_HOST'?'ServerHost':'ServerHost'+_v.replace('SERVER_HOST','');
+    // Raw URL form: https://hostname/path
     r=r.replace(new RegExp('(https?://)'+esc+'(:[0-9]+)?(?=[/?#\\s"\'`]|$)','g'),'$1{'+lrP+'}$2');
+    // URL-encoded form: https%3A%2F%2Fhostname (common in redirect_uri= POST body params)
+    r=r.replace(new RegExp('(https?%3A%2F%2F)'+esc+'(?=%2F|%3F|%23|&|\\s|$)','gi'),'$1{'+lrP+'}');
   }
   return r;
 }

@@ -1967,11 +1967,28 @@ function subHdrValMj(val,hostVarMap){
   for(const[_h,_v]of Object.entries(hostVarMap).sort((a,b)=>b[0].length-a[0].length)){
     if(!_h) continue;
     const esc=_h.replace(/[.*+?^${}()|[\]\\]/g,'\\$&');
+    // Raw URL form: https://hostname/path
     const n=r.replace(new RegExp('(https?://)'+esc+'(:[0-9]+)?(?=[/?#\\s"\'`]|$)','g'),'$1\x00HDRH_'+_v+'\x00$2');
     if(n!==r){ch=true;r=n;}
+    // URL-encoded form: https%3A%2F%2Fhostname (common in redirect_uri= POST body params)
+    const n2=r.replace(new RegExp('(https?%3A%2F%2F)'+esc+'(?=%2F|%3F|%23|&|\\s|$)','gi'),'$1\x00HDRH_'+_v+'\x00');
+    if(n2!==r){ch=true;r=n2;}
   }
   if(!ch) return'"'+escJs(val)+'"';
   return'`'+escTpl(r).replace(/\x00HDRH_([^\x00]+)\x00/g,'${$1}')+'`';
+}
+// Apply hostname substitution to raw text, returning text with \x00HDRH_VAR\x00 placeholders (for body/backtick emission)
+function subRawMj(text,hostVarMap){
+  let r=text,ch=false;
+  for(const[_h,_v]of Object.entries(hostVarMap).sort((a,b)=>b[0].length-a[0].length)){
+    if(!_h) continue;
+    const esc=_h.replace(/[.*+?^${}()|[\]\\]/g,'\\$&');
+    const n=r.replace(new RegExp('(https?://)'+esc+'(:[0-9]+)?(?=[/?#\\s"\'`]|$)','g'),'$1\x00HDRH_'+_v+'\x00$2');
+    if(n!==r){ch=true;r=n;}
+    const n2=r.replace(new RegExp('(https?%3A%2F%2F)'+esc+'(?=%2F|%3F|%23|&|\\s|$)','gi'),'$1\x00HDRH_'+_v+'\x00');
+    if(n2!==r){ch=true;r=n2;}
+  }
+  return{text:r,changed:ch};
 }
 function subHdrValC(val,hostVarMap){
   let r=val;
@@ -1979,7 +1996,10 @@ function subHdrValC(val,hostVarMap){
     if(!_h) continue;
     const esc=_h.replace(/[.*+?^${}()|[\]\\]/g,'\\$&');
     const lrP=_v==='SERVER_HOST'?'ServerHost':'ServerHost'+_v.replace('SERVER_HOST','');
+    // Raw URL form: https://hostname/path
     r=r.replace(new RegExp('(https?://)'+esc+'(:[0-9]+)?(?=[/?#\\s"\'`]|$)','g'),'$1{'+lrP+'}$2');
+    // URL-encoded form: https%3A%2F%2Fhostname (common in redirect_uri= POST body params)
+    r=r.replace(new RegExp('(https?%3A%2F%2F)'+esc+'(?=%2F|%3F|%23|&|\\s|$)','gi'),'$1{'+lrP+'}');
   }
   return r;
 }
@@ -2822,10 +2842,12 @@ function genMainJS(entries, correlations){
           let vx=escTpl(rawV);
           vx=vx.replace(/\x00DYNSTART_([^]+?)\x00DYNEND/g,'${load.global.$1}');
           vx=vx.replace(/\x00PARAM_([^]+?)\x00PARAMEND/g,'${load.params.$1}');
-          o+=`            "${escJs(key)}": \`${vx}\`,\n`;
+          const {text:vxSub,changed:vxCh}=subRawMj(vx,mjHostVarMap);
+          const vxFinal=vxCh?vxSub.replace(/\x00HDRH_([^\x00]+)\x00/g,'${$1}'):vx;
+          o+=`            "${escJs(key)}": \`${vxFinal}\`,\n`;
         } else {
           let val; try{val=decodeURIComponent(rawV.replace(/\+/g,' '));}catch{val=rawV;}
-          o+=`            "${escJs(key)}": "${escJs(val)}",\n`;
+          o+=`            "${escJs(key)}": ${subHdrValMj(val,mjHostVarMap)},\n`;
         }
       }
       o+=`        },\n`;
@@ -2862,10 +2884,12 @@ function genMainJS(entries, correlations){
             let vExpr=escTpl(rawV);
             vExpr=vExpr.replace(/\x00DYNSTART_([^]+?)\x00DYNEND/g,'${load.global.$1}');
             vExpr=vExpr.replace(/\x00PARAM_([^]+?)\x00PARAMEND/g,'${load.params.$1}');
-            o+=`            "${escJs(k)}": \`${vExpr}\`,\n`;
+            const {text:vSub,changed:vCh}=subRawMj(vExpr,mjHostVarMap);
+            const vFinal=vCh?vSub.replace(/\x00HDRH_([^\x00]+)\x00/g,'${$1}'):vExpr;
+            o+=`            "${escJs(k)}": \`${vFinal}\`,\n`;
           } else {
             let v=rawV; try{v=decodeURIComponent(rawV.replace(/\+/g,' '));}catch(ex){}
-            o+=`            "${escJs(k)}": "${escJs(v)}",\n`;
+            o+=`            "${escJs(k)}": ${subHdrValMj(v,mjHostVarMap)},\n`;
           }
         }
         o+=`        },\n`;
@@ -2873,16 +2897,26 @@ function genMainJS(entries, correlations){
         let esc1=escTpl(bodyText);
         esc1=esc1.replace(/\x00DYNSTART_([^]+?)\x00DYNEND/g,'${load.global.$1}');
         esc1=esc1.replace(/\x00PARAM_([^]+?)\x00PARAMEND/g,'${load.params.$1}');
-        o+=`        body: \`${esc1}\`,\n`;
+        // Apply hostname substitution to the already-resolved expression (hostname sub on static parts)
+        const {text:esc1Sub,changed:esc1Ch}=subRawMj(esc1,mjHostVarMap);
+        const esc1Final=esc1Ch?esc1Sub.replace(/\x00HDRH_([^\x00]+)\x00/g,'${$1}'):esc1;
+        o+=`        body: \`${esc1Final}\`,\n`;
       } else if(bodyMime==='application/json'||bodyMime==='text/json'){
         // Pretty-print JSON body as formatted JS object literal
-        try{
-          const parsed=JSON.parse(bodyText);
-          const lines=JSON.stringify(parsed,null,4).split('\n');
-          o+=`        body: ${lines.map((l,i)=>i===0?l:'        '+l).join('\n')},\n`;
-        }catch{ o+=`        body: \`${escTpl(bodyText)}\`,\n`; }
+        const {text:bSub,changed:bCh}=subRawMj(bodyText,mjHostVarMap);
+        if(bCh){
+          o+=`        body: \`${escTpl(bSub).replace(/\x00HDRH_([^\x00]+)\x00/g,'${$1}')}\`,\n`;
+        } else {
+          try{
+            const parsed=JSON.parse(bodyText);
+            const lines=JSON.stringify(parsed,null,4).split('\n');
+            o+=`        body: ${lines.map((l,i)=>i===0?l:'        '+l).join('\n')},\n`;
+          }catch{ o+=`        body: \`${escTpl(bodyText)}\`,\n`; }
+        }
       } else {
-        o+=`        body: \`${escTpl(bodyText)}\`,\n`;
+        const {text:bSub,changed:bCh}=subRawMj(bodyText,mjHostVarMap);
+        if(bCh) o+=`        body: \`${escTpl(bSub).replace(/\x00HDRH_([^\x00]+)\x00/g,'${$1}')}\`,\n`;
+        else    o+=`        body: \`${escTpl(bodyText)}\`,\n`;
       }
     }
     if(srcCorrsForReq.length>0){
@@ -3315,6 +3349,8 @@ function genActionC(entries, correlations){
               }
             }
           }
+          // 4. Hostname substitution — replace https://hostname with {ServerHost} etc.
+          sv=subHdrValC(sv, acHostVarMap);
           return {k:escJs(k), v:escJs(sv)};
         });
         o+=`\tweb_submit_data("${n}",\n`;
