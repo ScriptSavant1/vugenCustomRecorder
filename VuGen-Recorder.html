@@ -497,9 +497,18 @@ https://github.com/nodeca/pako/blob/main/LICENSE
       <li>Perform all steps for that transaction (login, fill form, navigate, etc.)</li>
       <li>Click the <strong style="color:#991b1b">&#x25A0; END Transaction</strong> bookmark &#x2014; the name is pre-filled from START, just click OK</li>
       <li>Repeat START / END for each transaction (T02_Home, T03_Search&hellip;). Navigate freely between bookmarklet clicks &#x2014; markers always fire in the current page&#x2019;s context</li>
-      <li>After all transactions are done: in the Network tab, <strong>right-click any row &rarr; "Save all as HAR with content"</strong></li>
+      <li>After all transactions are done: in the Network tab, click the download icon &rarr; select <strong>"Export HAR (with sensitive data)"</strong> &mdash; or right-click any row &rarr; <strong>"Save all as HAR with content"</strong></li>
       <li>Drop the saved <code>.har</code> file in the area above &#x2014; both scripts are generated automatically</li>
     </ol>
+    <div class="warn" style="margin-bottom:10px">&#x1F512; <strong>Required: Enable "Allow to generate HAR with Sensitive Data" before recording</strong>
+      <ol style="margin:8px 0 0 0;padding-left:20px;line-height:1.9;font-size:12px">
+        <li>Press <strong>F12</strong> to open DevTools &rarr; click the <strong>Settings gear icon</strong> (top-right corner) &mdash; or press <strong>F1</strong> / <strong>Shift+?</strong></li>
+        <li>Scroll to the <strong>Network</strong> section</li>
+        <li>Tick <strong>"Allow to generate HAR with Sensitive Data"</strong></li>
+        <li>Close Settings &rarr; when downloading, choose <strong>"Export HAR (with sensitive data)"</strong></li>
+      </ol>
+      <span style="font-size:11.5px;color:var(--muted)">This ensures Authorization headers, cookies and Bearer tokens are included. NFT environments use test data only &mdash; safe to enable.</span>
+    </div>
     <div class="tip">&#x1F4A1; <strong>DevTools settings (required before recording):</strong>
       <ul style="margin:6px 0 0 0;padding-left:20px;line-height:1.7">
         <li><strong>Preserve Log</strong> &#x2014; keeps all network requests visible across page navigations and redirects. Without this, requests from login redirects are lost.</li>

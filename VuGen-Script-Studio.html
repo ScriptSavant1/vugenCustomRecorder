@@ -436,6 +436,7 @@ https://github.com/nodeca/pako/blob/main/LICENSE
   </span>
   <span class="app-ver-badge">v2.0</span>
   <span class="har-count-badge" id="har-count-badge">0 HARs loaded</span>
+  <button class="btn-theme" id="btn-clear-hdr" onclick="clearAll()" title="Clear all files and start a new session" style="margin-right:4px;display:none">&#x1F5D1; Clear</button>
   <button class="btn-theme" id="btn-theme" onclick="toggleTheme()" title="Toggle light/dark mode">
     <span id="theme-icon">&#x2600;</span>
   </button>
@@ -466,6 +467,7 @@ https://github.com/nodeca/pako/blob/main/LICENSE
       <div class="dz-title" id="dz1-title">Recording 1 — HAR or NetLog</div>
       <div class="dz-sub" id="dz1-sub">Required &nbsp;·&nbsp; Drop .har or chrome://net-export/ .json</div>
       <div class="dz-name" id="dz1-name" style="display:none"></div>
+      <button id="dz1-clear" onclick="event.stopPropagation();clearSlot(1)" title="Remove this file" style="display:none;position:absolute;top:8px;right:8px;background:var(--danger,#ef4444);color:#fff;border:none;border-radius:50%;width:22px;height:22px;font-size:13px;cursor:pointer;line-height:1">&#x2715;</button>
     </div>
 
     <!-- HAR 2 -->
@@ -476,6 +478,7 @@ https://github.com/nodeca/pako/blob/main/LICENSE
       <div class="dz-sub" id="dz2-sub">Optional &nbsp;·&nbsp; Second run for diff-based correlation</div>
       <div class="dz-name" id="dz2-name" style="display:none"></div>
       <div class="dz-optional">Leave empty for pattern-based mode</div>
+      <button id="dz2-clear" onclick="event.stopPropagation();clearSlot(2)" title="Remove this file" style="display:none;position:absolute;top:8px;right:8px;background:var(--danger,#ef4444);color:#fff;border:none;border-radius:50%;width:22px;height:22px;font-size:13px;cursor:pointer;line-height:1">&#x2715;</button>
     </div>
   </div>
 
@@ -753,6 +756,48 @@ function markLoaded(slot, filename, netlog){
   document.getElementById('dz'+slot+'-name').textContent='\u2713 '+filename+tag;
   document.getElementById('dz'+slot+'-name').style.display='block';
   document.getElementById('dz'+slot+'-sub').style.display='none';
+  document.getElementById('dz'+slot+'-clear').style.display='block';
+  document.getElementById('btn-clear-hdr').style.display='';
+}
+
+function clearSlot(slot){
+  if(slot===1){ S.har1=null; S.isNetLog1=false; }
+  else { S.har2=null; S.isNetLog2=false; }
+  const dz=document.getElementById('dz'+slot);
+  dz.classList.remove('loaded');
+  document.getElementById('dz'+slot+'-name').style.display='none';
+  document.getElementById('dz'+slot+'-name').textContent='';
+  document.getElementById('dz'+slot+'-sub').style.display='';
+  document.getElementById('dz'+slot+'-clear').style.display='none';
+  // reset file input so same file can be re-selected
+  const inp=dz.querySelector('input[type=file]');
+  if(inp) inp.value='';
+  if(!S.har1&&!S.har2) document.getElementById('btn-clear-hdr').style.display='none';
+  updateUploadState();
+}
+
+function clearAll(){
+  S.har1=null; S.har2=null;
+  S.isNetLog1=false; S.isNetLog2=false;
+  S.entries1=[]; S.entries2=[];
+  S.txns=[]; S.correlations=[]; S.candidates=[];
+  S.params=[]; S.scripts={}; S.auth=null; S.serverHost=null;
+  [1,2].forEach(slot=>{
+    const dz=document.getElementById('dz'+slot);
+    dz.classList.remove('loaded');
+    document.getElementById('dz'+slot+'-name').style.display='none';
+    document.getElementById('dz'+slot+'-name').textContent='';
+    document.getElementById('dz'+slot+'-sub').style.display='';
+    document.getElementById('dz'+slot+'-clear').style.display='none';
+    const inp=dz.querySelector('input[type=file]');
+    if(inp) inp.value='';
+  });
+  const btn=document.getElementById('btn-analyze');
+  btn.disabled=true;
+  btn.textContent='Load a HAR file to begin';
+  document.getElementById('mode-badge').innerHTML='Mode: <b style="color:var(--warning)">Pattern</b> (1 HAR)';
+  document.getElementById('btn-clear-hdr').style.display='none';
+  showPhase('ph-upload');
 }
 
 function updateUploadState(){
@@ -769,6 +814,9 @@ function updateUploadState(){
       badge.innerHTML='Mode: <b style="color:var(--warn)">Pattern</b> (1 HAR — heuristic)';
       S.mode='single';
     }
+  } else {
+    btn.disabled=true;
+    btn.textContent='Load a HAR file to begin';
   }
 }
 
